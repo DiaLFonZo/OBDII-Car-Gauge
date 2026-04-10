@@ -449,7 +449,8 @@ static bool runBgProbe() {
 extern int gaugePage;
 
 void handleOBD(AppState &state) {
-  if (state != STATE_INIT_ELM && state != STATE_GAUGE && state != STATE_PID_SCAN) return;
+  if (state != STATE_INIT_ELM && state != STATE_GAUGE &&
+      state != STATE_PID_SCAN && state != STATE_MENU_PIDS) return;
 
   if (!BTSerial.connected()) {
     Serial.println("OBD: BT lost");

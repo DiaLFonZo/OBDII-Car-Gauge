@@ -21,7 +21,6 @@ enum AppState {
   STATE_MENU_PIDS,      // PID selector (toggle active PIDs)
   STATE_MENU_CONNECT,   // BT scan / connect / forget
   STATE_MENU_SETTINGS,  // warn thresholds, brightness, etc.
-  STATE_MENU_DEFAULTS,  // placeholder: default reading config
 
   // ── Legacy — no longer used, kept to avoid breaking old references ─
   STATE_SCANNING,       // retired — use STATE_MENU_CONNECT

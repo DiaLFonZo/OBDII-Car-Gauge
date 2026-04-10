@@ -46,6 +46,41 @@
 #define TFT_DGRAY   0x2104
 
 // ─────────────────────────────────────────────────────────────
+// Theme — all UI colors go through these variables
+// Dark mode (default): black bg, white text
+// Light mode:          white bg, dark text
+// ─────────────────────────────────────────────────────────────
+static bool themeDark = true;  // loaded from NVS in ui_init()
+
+// Theme color accessors — use these everywhere instead of TFT_BLACK/WHITE directly
+static inline uint16_t T_BG()       { return themeDark ? 0x0000 : 0xFFFF; }  // page background
+static inline uint16_t T_FG()       { return themeDark ? 0xFFFF : 0x0000; }  // primary text
+static inline uint16_t T_BAR()      { return themeDark ? 0x2104 : 0xC618; }  // title bar
+static inline uint16_t T_BAR_TXT()  { return themeDark ? 0xFFFF : 0x0000; }  // title bar text
+static inline uint16_t T_SEP()      { return themeDark ? 0x4208 : 0x8410; }  // separator lines
+static inline uint16_t T_DIM()      { return themeDark ? 0x4208 : 0x8410; }  // dim text / icons
+static inline uint16_t T_DARKER()   { return themeDark ? 0x2104 : 0xC618; }  // darker hint text
+static inline uint16_t T_SEL()      { return themeDark ? 0x2104 : 0xC618; }  // selected row bg
+static inline uint16_t T_OVERLAY()  { return themeDark ? 0x0821 : 0x9CF3; }  // overlay bg
+
+void ui_setTheme(bool dark) {
+  themeDark = dark;
+  Preferences prefs;
+  prefs.begin("theme", false);
+  prefs.putBool("dark", dark);
+  prefs.end();
+}
+
+bool ui_isDarkTheme() { return themeDark; }
+
+static void loadTheme() {
+  Preferences prefs;
+  prefs.begin("theme", true);
+  themeDark = prefs.getBool("dark", true);  // default dark
+  prefs.end();
+}
+
+// ─────────────────────────────────────────────────────────────
 // Framebuffer — 128x128 x 2 bytes = 32KB
 // Draw everything here, flush to screen in one burst
 // ─────────────────────────────────────────────────────────────
@@ -196,6 +231,7 @@ static void flushFramebuf() {
   SPI.endTransaction();
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // GFX subclass — draws into framebuffer, never touches SPI
 // ─────────────────────────────────────────────────────────────
@@ -285,6 +321,7 @@ void VextON() {}
 // initDisplay
 // ─────────────────────────────────────────────────────────────
 void ui_init() {
+  loadTheme();  // load dark/light preference from NVS
   Wire.begin(19, 18);
   delay(10);
 
@@ -318,9 +355,9 @@ void ui_init() {
 // ─────────────────────────────────────────────────────────────
 
 static void drawTitle(const char* title) {
-  tft.fillRect(0, 0, SCREEN_W, 14, TFT_DGRAY);
-  tft.drawFastHLine(0, 14, SCREEN_W, TFT_GRAY);
-  tft.setTextColor(TFT_WHITE);
+  tft.fillRect(0, 0, SCREEN_W, 14, T_BAR());
+  tft.drawFastHLine(0, 14, SCREEN_W, T_SEP());
+  tft.setTextColor(T_FG());
   tft.setTextSize(1);
   tft.setCursor(2, 3);
   tft.print(title);
@@ -328,7 +365,7 @@ static void drawTitle(const char* title) {
 
 static void drawCentered(const char* text, int y, int size, uint16_t color) {
   tft.setTextSize(size);
-  tft.setTextColor(color, TFT_BLACK);
+  tft.setTextColor(color, T_BG());
   int16_t x1, y1;
   uint16_t w, h;
   tft.getTextBounds(text, 0, y, &x1, &y1, &w, &h);
@@ -337,16 +374,97 @@ static void drawCentered(const char* text, int y, int size, uint16_t color) {
 }
 
 static void drawProgressBar(int x, int y, int w, int h, int pct) {
-  tft.drawRect(x, y, w, h, TFT_WHITE);
+  tft.drawRect(x, y, w, h, T_SEP());
   int filled = (int)((w - 2) * pct / 100.0);
   if (filled > 0)
     tft.fillRect(x + 1, y + 1, filled, h - 2, TFT_CYAN);
   if (filled < w - 2)
-    tft.fillRect(x + 1 + filled, y + 1, w - 2 - filled, h - 2, TFT_BLACK);
+    tft.fillRect(x + 1 + filled, y + 1, w - 2 - filled, h - 2, T_BG());
 }
 
 // ─────────────────────────────────────────────────────────────
-// Screens — all draw to framebuffer then flush once at the end
+// Public display utilities — must be after tft declaration
+// ─────────────────────────────────────────────────────────────
+
+// Public flush — forces framebuffer to screen
+void ui_flush() { flushFramebuf(); }
+
+// Scanning overlay — call before startScan() to show feedback
+void ui_scanOverlay() {
+  // Draws on TOP of the current connect page content.
+  // Only fills the list area (y=16 to y=99), leaving title and hints visible.
+  // Animation: diagonal bar sweeping across the overlay box.
+  static int          spF = 0;
+  static unsigned long spT = 0;
+  if (millis() - spT > 60) { spF = (spF + 1) % 32; spT = millis(); }
+
+  const int OX = 0, OY = 16, OW = SCREEN_W, OH = 83;  // overlay area
+
+  // Dark semi-transparent background
+  tft.fillRect(OX, OY, OW, OH, T_OVERLAY());
+
+  // Diagonal bar — moves across the box
+  // Bar is a diagonal stripe 12px wide, sweeping left to right
+  int barPos = (spF * (OW + OH)) / 32 - OH;  // -OH to OW range
+  for (int y = OY; y < OY + OH; y++) {
+    int x0 = barPos + (y - OY);  // diagonal: x shifts with y
+    // Draw a 14px wide bright stripe
+    for (int dx = 0; dx < 14; dx++) {
+      int x = x0 + dx;
+      if (x >= OX && x < OX + OW) {
+        // Brightness falls off at edges of stripe
+        uint16_t col = (dx < 2 || dx > 11) ? 0x2104 :
+                       (dx < 4 || dx > 9)  ? 0x4208 :
+                       (dx < 6 || dx > 7)  ? 0x8410 : 0xC618;
+        tft.drawPixel(x, y, col);
+      }
+    }
+  }
+
+  // Centered label
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_WHITE, 0x0821);
+  // "Scanning..." centered in overlay
+  int lx = OX + (OW - 11*6) / 2;
+  int ly = OY + OH/2 - 4;
+  // Clear text background
+  tft.fillRect(lx - 4, ly - 2, 11*6 + 8, 12, 0x0821);
+  tft.setCursor(lx, ly);
+  tft.print("Scanning...");
+
+  flushFramebuf();
+}
+
+void ui_connectOverlay() {
+  // Same diagonal bar animation as scan, but labeled "Connecting..."
+  static int           cpF = 0;
+  static unsigned long cpT = 0;
+  if (millis() - cpT > 60) { cpF = (cpF + 1) % 32; cpT = millis(); }
+
+  const int OX = 0, OY = 16, OW = SCREEN_W, OH = 83;
+  int barPos = (cpF * (OW + OH)) / 32 - OH;
+  tft.fillRect(OX, OY, OW, OH, T_OVERLAY());
+  for (int y = OY; y < OY + OH; y++) {
+    int x0 = barPos + (y - OY);
+    for (int dx = 0; dx < 14; dx++) {
+      int x = x0 + dx;
+      if (x >= OX && x < OX + OW) {
+        uint16_t col = (dx < 2 || dx > 11) ? 0x2104 :
+                       (dx < 4 || dx > 9)  ? 0x4208 :
+                       (dx < 6 || dx > 7)  ? 0x8410 : 0xC618;
+        tft.drawPixel(x, y, col);
+      }
+    }
+  }
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_WHITE, 0x0821);
+  int lx = OX + (OW - 13*6) / 2;  // "Connecting..." = 13 chars
+  int ly = OY + OH/2 - 4;
+  tft.fillRect(lx - 4, ly - 2, 13*6 + 8, 12, 0x0821);
+  tft.setCursor(lx, ly);
+  tft.print("Connecting...");
+  flushFramebuf();
+}
 
 // ─────────────────────────────────────────────────────────────
 // Button icon helpers
@@ -358,68 +476,88 @@ static void drawProgressBar(int x, int y, int w, int h, int pct) {
 // Usage: icon + optional label next to it
 // All icons are ~10px tall, designed for hint rows
 // ─────────────────────────────────────────────────────────────
+// Icons — all 10px tall, centered on cy
+// ─────────────────────────────────────────────────────────────
 
 static void drawJoystickIcon(int cx, int cy, uint16_t color) {
-  tft.drawCircle(cx, cy, 5, color);       // outer ring
-  tft.fillCircle(cx, cy, 2, color);       // center dot
-  // 4 direction nubs
-  tft.drawPixel(cx, cy - 5, color);
-  tft.drawPixel(cx, cy + 5, color);
-  tft.drawPixel(cx - 5, cy, color);
-  tft.drawPixel(cx + 5, cy, color);
+  tft.drawCircle(cx, cy, 4, color);
+  tft.fillCircle(cx, cy, 2, color);
+  tft.drawPixel(cx,   cy-4, color);
+  tft.drawPixel(cx,   cy+4, color);
+  tft.drawPixel(cx-4, cy,   color);
+  tft.drawPixel(cx+4, cy,   color);
 }
 
 static void drawSquareIcon(int cx, int cy, uint16_t color) {
-  tft.drawRect(cx - 4, cy - 4, 9, 9, color);
-  tft.drawRect(cx - 3, cy - 3, 7, 7, color);
+  tft.drawRect(cx-4, cy-4, 9, 9, color);
+  tft.drawRect(cx-3, cy-3, 7, 7, color);
 }
 
 static void drawTriangleIcon(int cx, int cy, uint16_t color) {
-  // Upward triangle
-  tft.drawLine(cx, cy - 5, cx - 5, cy + 4, color);
-  tft.drawLine(cx - 5, cy + 4, cx + 5, cy + 4, color);
-  tft.drawLine(cx + 5, cy + 4, cx, cy - 5, color);
+  tft.drawLine(cx,   cy-4, cx-4, cy+4, color);
+  tft.drawLine(cx-4, cy+4, cx+4, cy+4, color);
+  tft.drawLine(cx+4, cy+4, cx,   cy-4, color);
 }
 
-static void drawHoldArc(int cx, int cy, uint16_t color) {
-  // Small arc indicating hold/long-press
+static void drawCenterDotIcon(int cx, int cy, uint16_t color) {
   tft.drawCircle(cx, cy, 4, color);
-  tft.fillRect(cx - 1, cy - 4, 3, 4, TFT_BLACK);  // gap at top
-  tft.drawFastVLine(cx, cy - 4, 2, color);          // arrow down
-  tft.drawPixel(cx - 1, cy - 3, color);
-  tft.drawPixel(cx + 1, cy - 3, color);
+  tft.fillCircle(cx, cy, 2, color);
 }
 
-// Draw a hint row: icon + label
-// x = left edge, y = vertical center
-static void drawHint(int x, int y, const char* icon, const char* label,
-                     uint16_t iconColor, uint16_t textColor) {
-  int ix = x + 5;
-  if (strcmp(icon, "joy") == 0)  drawJoystickIcon(ix, y, iconColor);
-  if (strcmp(icon, "sq") == 0)   drawSquareIcon(ix, y, iconColor);
-  if (strcmp(icon, "tri") == 0)  drawTriangleIcon(ix, y, iconColor);
-  if (strcmp(icon, "hold") == 0) drawHoldArc(ix, y, iconColor);
-  tft.setTextSize(1);
-  tft.setTextColor(textColor, TFT_BLACK);
-  tft.setCursor(x + 13, y - 3);
-  tft.print(label);
-}
+// ─────────────────────────────────────────────────────────────
+// drawPageHints — unified 2-line footer used on every page
+//
+// Pass up to 4 hint slots. Each slot = { icon, label }.
+// icon: "joy"=joystick "sq"=square "tri"=triangle "dot"=center dot
+// Slots are distributed evenly across 128px.
+// Line 1 (y=107): separator line
+// Line 2 (y=110): labels (gray text, centered under icon)
+// Line 3 (y=120): icons
+// ─────────────────────────────────────────────────────────────
 
-// Draw a centered hint bar at the bottom of screen
-// Up to 2 hints side by side
-static void drawHintBar(const char* icon1, const char* label1,
-                        const char* icon2, const char* label2) {
-  tft.drawFastHLine(0, 108, SCREEN_W, TFT_DGRAY);
-  tft.fillRect(0, 109, SCREEN_W, 19, TFT_BLACK);
-  if (icon2 && strlen(icon2) > 0) {
-    // Two hints — each gets half the screen (64px)
-    // Icon=12px, text starts at +13, max 8 chars (48px) = 61px total — fits
-    drawHint(2,  118, icon1, label1, TFT_CYAN, TFT_GRAY);
-    drawHint(66, 118, icon2, label2, TFT_CYAN, TFT_GRAY);
-  } else {
-    int w = (int)strlen(label1) * 6 + 14;
-    drawHint((SCREEN_W - w) / 2, 118, icon1, label1, TFT_CYAN, TFT_GRAY);
+struct HintSlot { const char* icon; const char* label; };
+
+static void drawPageHints(HintSlot slots[], int count) {
+  // Footer: separator at y=99, icon at y=107, label at y=118
+  // Total footer height: 128-99 = 29px. Icon=10px, gap=1px, label=8px = 19px. Fits.
+  const uint16_t BG      = T_BG();
+  const uint16_t SEP_COL = T_SEP();
+  const uint16_t ICO_COL = T_DIM();
+  const uint16_t TXT_COL = T_DARKER();
+
+  tft.drawFastHLine(0, 99, SCREEN_W, T_SEP());
+  tft.fillRect(0, 100, SCREEN_W, SCREEN_H - 100, T_BG());
+
+  if (count < 1) return;
+
+  int slotW = SCREEN_W / count;
+
+  for (int i = 0; i < count; i++) {
+    int cx = slotW * i + slotW / 2;
+
+    // Icon at y=107
+    const char* ic = slots[i].icon;
+    if      (strcmp(ic, "joy") == 0) drawJoystickIcon(cx,  107, ICO_COL);
+    else if (strcmp(ic, "sq")  == 0) drawSquareIcon(cx,    107, ICO_COL);
+    else if (strcmp(ic, "tri") == 0) drawTriangleIcon(cx,  107, ICO_COL);
+    else if (strcmp(ic, "dot") == 0) drawCenterDotIcon(cx, 107, ICO_COL);
+
+    // Label at y=118
+    tft.setTextSize(1);
+    tft.setTextColor(TXT_COL, BG);
+    int labelW = strlen(slots[i].label) * 6;
+    int labelX = cx - labelW / 2;
+    if (labelX < slotW * i) labelX = slotW * i;
+    tft.setCursor(labelX, 118);
+    tft.print(slots[i].label);
   }
+}
+
+// Convenience wrappers for common layouts
+static void drawHintBar(const char* i1, const char* l1,
+                        const char* i2, const char* l2) {
+  HintSlot s[] = {{i1,l1},{i2,l2}};
+  drawPageHints(s, 2);
 }
 // ─────────────────────────────────────────────────────────────
 
@@ -440,37 +578,37 @@ void ui_autoConnect() {
   // Fill bar over 5s matching the timeout in the .ino
   int pct = (int)(100.0f * min((millis() - autoConnectFirstCall) / 5000.0f, 1.0f));
 
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(T_BG());
 
   // Spinner
   tft.setTextSize(2);
-  tft.setTextColor(TFT_CYAN, TFT_BLACK);
+  tft.setTextColor(TFT_CYAN, T_BG());
   tft.setCursor(58, 8);
   tft.print(spinner[frame]);
 
-  tft.drawFastHLine(0, 28, SCREEN_W, TFT_DGRAY);
+  tft.drawFastHLine(0, 28, SCREEN_W, T_SEP());
 
-  drawCentered("Reconnecting to", 33, 1, TFT_GRAY);
+  drawCentered("Reconnecting to", 33, 1, T_DIM());
 
   String name = getSavedDeviceName();
   if (name == "") name = "Saved device";
   if (name.length() <= 10) {
-    drawCentered(name.c_str(), 50, 2, TFT_WHITE);
+    drawCentered(name.c_str(), 50, 2, T_FG());
   } else {
-    drawCentered(name.substring(0, 16).c_str(), 46, 1, TFT_WHITE);
+    drawCentered(name.substring(0, 16).c_str(), 46, 1, T_FG());
     if (name.length() > 16)
-      drawCentered(name.substring(16, 32).c_str(), 58, 1, TFT_WHITE);
+      drawCentered(name.substring(16, 32).c_str(), 58, 1, T_FG());
   }
 
   // Progress bar — fills left to right over 5s
   int filled = (int)(118.0f * (pct / 100.0f));
-  tft.drawRect(4, 80, 120, 8, TFT_DGRAY);
+  tft.drawRect(4, 80, 120, 8, T_SEP());
   if (filled > 0)   tft.fillRect(5, 81, filled, 6, TFT_CYAN);
-  if (filled < 118) tft.fillRect(5 + filled, 81, 118 - filled, 6, TFT_BLACK);
+  if (filled < 118) tft.fillRect(5 + filled, 81, 118 - filled, 6, T_BG());
 
   // Status hint at bottom
   tft.setTextSize(1);
-  tft.setTextColor(TFT_GRAY, TFT_BLACK);
+  tft.setTextColor(T_DIM(), T_BG());
   tft.setCursor(2, 112);
   tft.print(pct < 20 ? "Waiting..." : pct < 80 ? "Connecting..." : "Almost...");
 
@@ -483,31 +621,31 @@ void ui_connecting() {
   if (millis() - lastFrame > 200) { frame = (frame + 1) % 8; lastFrame = millis(); }
   const char* spinner[] = { "|", "/", "-", "\\", "|", "/", "-", "\\" };
 
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(T_BG());
 
   tft.setTextSize(2);
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setTextColor(TFT_YELLOW, T_BG());
   tft.setCursor(58, 8);
   tft.print(spinner[frame]);
 
-  tft.drawFastHLine(0, 28, SCREEN_W, TFT_DGRAY);
+  tft.drawFastHLine(0, 28, SCREEN_W, T_SEP());
 
-  drawCentered("Connecting", 36, 1, TFT_GRAY);
+  drawCentered("Connecting", 36, 1, T_DIM());
 
   String name = getSavedDeviceName();
   if (name == "") name = "OBD Adapter";
   // Use size 2 for short names, size 1 for longer ones
   if (name.length() <= 10) {
-    drawCentered(name.c_str(), 52, 2, TFT_WHITE);
+    drawCentered(name.c_str(), 52, 2, T_FG());
   } else {
     // Split to two lines at size 1
-    drawCentered(name.substring(0, 16).c_str(), 48, 1, TFT_WHITE);
+    drawCentered(name.substring(0, 16).c_str(), 48, 1, T_FG());
     if (name.length() > 16)
-      drawCentered(name.substring(16, 32).c_str(), 60, 1, TFT_WHITE);
+      drawCentered(name.substring(16, 32).c_str(), 60, 1, T_FG());
   }
 
-  tft.drawFastHLine(0, 98, SCREEN_W, TFT_DGRAY);
-  drawCentered("Please wait...", 104, 1, TFT_GRAY);
+  tft.drawFastHLine(0, 98, SCREEN_W, T_SEP());
+  drawCentered("Please wait...", 104, 1, T_DIM());
 
   flushFramebuf();
 }
@@ -518,29 +656,29 @@ static void showWaitingData() {
   if (millis() - lastFrame > 200) { frame = (frame + 1) % 8; lastFrame = millis(); }
   const char* spinner[] = { "|", "/", "-", "\\", "|", "/", "-", "\\" };
 
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(T_BG());
 
   tft.setTextSize(2);
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  tft.setTextColor(TFT_GREEN, T_BG());
   tft.setCursor(58, 8);
   tft.print(spinner[frame]);
 
-  tft.drawFastHLine(0, 28, SCREEN_W, TFT_DGRAY);
+  tft.drawFastHLine(0, 28, SCREEN_W, T_SEP());
 
-  drawCentered("Connected!", 36, 1, TFT_GRAY);
+  drawCentered("Connected!", 36, 1, T_DIM());
 
   String name = getSavedDeviceName();
   if (name == "") name = "OBD Adapter";
   if (name.length() <= 10) {
-    drawCentered(name.c_str(), 52, 2, TFT_WHITE);
+    drawCentered(name.c_str(), 52, 2, T_FG());
   } else {
-    drawCentered(name.substring(0, 16).c_str(), 48, 1, TFT_WHITE);
+    drawCentered(name.substring(0, 16).c_str(), 48, 1, T_FG());
     if (name.length() > 16)
-      drawCentered(name.substring(16, 32).c_str(), 60, 1, TFT_WHITE);
+      drawCentered(name.substring(16, 32).c_str(), 60, 1, T_FG());
   }
 
-  tft.drawFastHLine(0, 78, SCREEN_W, TFT_DGRAY);
-  drawCentered("Getting data...", 84, 1, TFT_GRAY);
+  tft.drawFastHLine(0, 78, SCREEN_W, T_SEP());
+  drawCentered("Getting data...", 84, 1, T_DIM());
 
   flushFramebuf();
 }
@@ -554,110 +692,126 @@ static void showWaitingData() {
 // index 1..N     → scanned BLE devices (deviceList[index-offset])
 // ─────────────────────────────────────────────────────────────
 
-static int virtualOffset() {
-  return (getSavedDeviceName() != "") ? 1 : 0;
-}
+// scanLastSelected/scanLastCount removed — connect page always redraws
 
-int getVirtualCount() {
-  return getDeviceCount() + virtualOffset();
-}
+void ui_resetScanDisplay() {}  // kept for compat, no-op
 
-bool isSavedSlot(int index) {
-  return (getSavedDeviceName() != "" && index == 0);
-}
+void ui_menuConnect(int /*unused*/, int selected) {
+  // Virtual list:
+  //   index 0             = [ SCAN ]
+  //   index 1..savedCount = saved devices  (BTSavedDevice)
+  //   index savedCount+1.. = scan results not already saved (BTDeviceEntry)
 
-bool isForgetSlot(int index) {
-  return isSavedSlot(index);
-}
+  int savedCount = getSavedDeviceCount();
+  int scanCount  = getDeviceCount();
 
-// Convert virtual index to real deviceList index
-int virtualToReal(int index) {
-  return index - virtualOffset();
-}
+  // Count scan results not already in saved list
+  int newScanCount = 0;
+  bool scanIsNew[MAX_SCAN_DEVICES] = {};
+  for (int i = 0; i < scanCount; i++) {
+    BTDeviceEntry* se = getDevice(i);
+    if (!se) continue;
+    bool alreadySaved = false;
+    for (int j = 0; j < savedCount; j++) {
+      BTSavedDevice* sd = getSavedDevice(j);
+      if (sd && sd->mac == se->address) { alreadySaved = true; break; }
+    }
+    if (!alreadySaved) { scanIsNew[i] = true; newScanCount++; }
+  }
 
-static int scanLastSelected = -1;
-static int scanLastCount    = -1;
+  int totalItems = 1 + savedCount + newScanCount;
 
-void ui_resetScanDisplay() {
-  scanLastSelected = -2;  // force redraw on next call
-  scanLastCount    = -2;
-}
-
-void ui_menuConnect(int deviceCount, int selected) {
-  int vCount = getVirtualCount();
-
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(T_BG());
 
   // Title bar
-  tft.fillRect(0, 0, SCREEN_W, 14, TFT_DGRAY);
+  tft.fillRect(0, 0, SCREEN_W, 14, T_BAR());
   tft.setTextSize(1);
-  tft.setTextColor(TFT_WHITE, TFT_DGRAY);
+  tft.setTextColor(T_BAR_TXT(), T_BAR());
   tft.setCursor(2, 3);
   tft.print("CONNECT");
 
-  if (vCount == 0) {
-    // Still scanning
-    static int spF = 0; static unsigned long spT = 0;
-    if (millis()-spT > 150) { spF=(spF+1)%4; spT=millis(); }
-    const char* sp[] = {"-","\\","|","/"};
-    tft.setCursor(SCREEN_W-10, 3); tft.print(sp[spF]);
-    drawCentered("Scanning...", 45, 1, TFT_WHITE);
-    drawCentered("Please wait",  60, 1, TFT_GRAY);
-    drawTriangleIcon(7, SCREEN_H-6, TFT_CYAN);
-    tft.setTextColor(TFT_GRAY, TFT_BLACK);
-    tft.setCursor(15, SCREEN_H-9); tft.print("Back");
+  // Show counts in title
+  tft.setTextColor(TFT_CYAN, T_BAR());
+  String info = "";
+  if (savedCount > 0) info += String(savedCount) + "S";
+  if (newScanCount > 0) info += (info.length() > 0 ? " " : "") + String(newScanCount) + "N";
+  if (info.length() > 0) {
+    tft.setCursor(SCREEN_W - (int)(info.length()*6) - 2, 3);
+    tft.print(info);
+  }
+
+  // Device list
+  const int MAX_VIS = 6;
+  const int ROW_H   = 14;
+  const int ROW_Y   = 16;
+
+  // First row always: [ SCAN ]
+  bool scanSel = (selected == 0);
+  if (scanSel) tft.fillRect(0, ROW_Y, SCREEN_W, ROW_H, T_SEL());
+  tft.setTextColor(TFT_CYAN, scanSel ? T_SEL() : T_BG());
+  tft.setCursor(4, ROW_Y + 3);
+  tft.print(scanSel ? "> [ SCAN ]" : "  [ SCAN ]");
+
+  // If nothing known yet — show permanent message below SCAN item
+  if (savedCount == 0 && newScanCount == 0) {
+    tft.setTextSize(1);
+    tft.setTextColor(T_DIM(), T_BG());
+    tft.setCursor(4, ROW_Y + ROW_H + 6);
+    tft.print("No devices found.");
+    tft.setCursor(4, ROW_Y + ROW_H + 18);
+    tft.print("Press O to scan.");
+  { HintSlot s[] = {{"joy","Nav"},{"tri","Back"}}; drawPageHints(s, 2); }
     flushFramebuf();
     return;
   }
 
-  // Device count in title
-  tft.setTextColor(TFT_CYAN, TFT_DGRAY);
-  String countStr = String(vCount) + " found";
-  tft.setCursor(SCREEN_W-(int)(countStr.length()*6)-2, 3);
-  tft.print(countStr);
+  int start = selected - 1;
+  if (start < 1) start = 1;
+  if (start > totalItems - MAX_VIS + 1) start = max(1, totalItems - MAX_VIS + 1);
 
-  // Device list
-  const int MAX_VIS = 7;
-  const int ROW_H   = 14;
-  const int ROW_Y   = 16;
+  // Draw rows 1..totalItems-1 (SCAN row 0 already drawn above)
+  for (int i = 1; i < MAX_VIS; i++) {
+    int index = start + i - 1;
+    if (index < 1 || index >= totalItems) break;
 
-  int start = selected - 3;
-  if (start < 0) start = 0;
-  if (start > vCount - MAX_VIS) start = max(0, vCount - MAX_VIS);
-
-  for (int i = 0; i < MAX_VIS; i++) {
-    int index = start + i;
-    if (index >= vCount) break;
-    bool isSaved = isSavedSlot(index);
-    String label;
-    if (isSaved) {
-      label = getSavedDeviceName();
-      if (label.length() > 14) label = label.substring(0, 14);
-      label = "* " + label;
-    } else {
-      BTDeviceEntry* dev = getDevice(virtualToReal(index));
-      if (!dev) continue;
-      label = dev->name != "" ? dev->name : dev->address;
-      if (label.length() > 18) label = label.substring(0, 18);
-    }
     bool sel = (index == selected);
-    if (sel) tft.fillRect(0, ROW_Y+i*ROW_H, SCREEN_W, ROW_H, TFT_DGRAY);
-    uint16_t col = isSaved ? 0x07E0 : TFT_WHITE;
-    if (sel) col = TFT_YELLOW;
-    tft.setTextColor(col, sel ? TFT_DGRAY : TFT_BLACK);
-    tft.setCursor(4, ROW_Y+i*ROW_H+3);
-    tft.print(label);
+    if (sel) tft.fillRect(0, ROW_Y+i*ROW_H, SCREEN_W, ROW_H, T_SEL());
+
+    if (index <= savedCount) {
+      // Saved device
+      int di = index - 1;
+      BTSavedDevice* dev = getSavedDevice(di);
+      if (!dev) continue;
+      bool isDefault = (di == getDefaultDeviceIndex());
+      String label = dev->name != "" ? dev->name : dev->mac;
+      if (label.length() > 14) label = label.substring(0, 14);
+      String marker = isDefault ? "[*] " : "[ ] ";
+      uint16_t col = isDefault ? 0x07E0 : TFT_WHITE;
+      if (sel) col = TFT_YELLOW;
+      tft.setTextColor(col, sel ? T_SEL() : T_BG());
+      tft.setCursor(4, ROW_Y+i*ROW_H+3);
+      tft.print(marker + label);
+
+    } else {
+      // New scan result (not saved)
+      int ni = index - 1 - savedCount;
+      int found = -1, cnt = 0;
+      for (int j = 0; j < scanCount; j++) {
+        if (scanIsNew[j]) { if (cnt == ni) { found = j; break; } cnt++; }
+      }
+      if (found < 0) continue;
+      BTDeviceEntry* dev = getDevice(found);
+      if (!dev) continue;
+      String label = dev->name != "" ? dev->name : dev->address;
+      if (label.length() > 16) label = label.substring(0, 16);
+      uint16_t col = sel ? TFT_YELLOW : 0x8410;
+      tft.setTextColor(col, sel ? T_SEL() : T_BG());
+      tft.setCursor(4, ROW_Y+i*ROW_H+3);
+      tft.print("  " + label);
+    }
   }
 
-  // Hint bar
-  tft.drawFastHLine(0, SCREEN_H-13, SCREEN_W, TFT_DGRAY);
-  tft.fillRect(0, SCREEN_H-12, SCREEN_W, 12, TFT_BLACK);
-  drawJoystickIcon(7,   SCREEN_H-6, TFT_CYAN);
-  tft.setTextColor(TFT_GRAY, TFT_BLACK); tft.setCursor(15, SCREEN_H-9); tft.print("Nav");
-  drawSquareIcon(52,    SCREEN_H-6, TFT_CYAN);
-  tft.setTextColor(TFT_GRAY, TFT_BLACK); tft.setCursor(60, SCREEN_H-9); tft.print("Connect");
-  drawTriangleIcon(107, SCREEN_H-6, TFT_CYAN);
-  tft.setTextColor(TFT_GRAY, TFT_BLACK); tft.setCursor(115, SCREEN_H-9); tft.print("^");
+  { HintSlot s[] = {{"joy","Nav"},{"tri","Back"}}; drawPageHints(s, 2); }
 
   flushFramebuf();
 }
@@ -707,7 +861,7 @@ static void drawDial(float pct, float warnPct,
   //       [   1 2 5 0   ]          ← huge value, size 4
   //       [    unit     ]          ← small unit
 
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(T_BG());
 
   // Regen flash border
   if (regenActive && (millis() / 400) % 2 == 0)
@@ -715,13 +869,13 @@ static void drawDial(float pct, float warnPct,
 
   // ── Header row ───────────────────────────────────────────────
   tft.setTextSize(1);
-  tft.setTextColor(COLOR_LTGRAY, TFT_BLACK);
+  tft.setTextColor(T_FG(), T_BG());
   int16_t tx, ty; uint16_t tw, th;  // for label bounds
   tft.getTextBounds(label, 0, 0, &tx, &ty, &tw, &th);
   tft.setCursor((SCREEN_W - tw) / 2, 3);
   tft.print(label);
 
-  tft.setTextColor(COLOR_DIMGRAY, TFT_BLACK);
+  tft.setTextColor(T_DIM(), T_BG());
   String pageStr = String(pageNum) + "/" + String(pageTotal);
   tft.setCursor(SCREEN_W - (int)(pageStr.length() * 6) - 2, 3);
   tft.print(pageStr);
@@ -729,13 +883,13 @@ static void drawDial(float pct, float warnPct,
   // Connection status dot — top left, green=connected red=not
   tft.fillCircle(5, 7, 3, isBTConnected() ? 0x07E0 : 0xF800);
 
-  tft.drawFastHLine(4, 14, SCREEN_W - 8, COLOR_DIMGRAY);
+  tft.drawFastHLine(4, 14, SCREEN_W - 8, T_SEP());
 
   // ── Value — large, below header ──────────────────────────────
   // Layout: header(14) | value(18-58) | unit(60) | bar(72-96) | hint(118)
   uint16_t valColor = hasData ? COLOR_ARC_YEL : COLOR_DIMGRAY;
   tft.setTextSize(4);
-  tft.setTextColor(valColor, TFT_BLACK);
+  tft.setTextColor(valColor, T_BG());
   tft.getTextBounds(valStr, 0, 0, &tx, &ty, &tw, &th);
   if (tw > SCREEN_W - 8) {
     tft.setTextSize(3);
@@ -747,7 +901,7 @@ static void drawDial(float pct, float warnPct,
   // ── Unit ──────────────────────────────────────────────────────
   if (strlen(unit) > 0) {
     tft.setTextSize(1);
-    tft.setTextColor(COLOR_DIMGRAY, TFT_BLACK);
+    tft.setTextColor(T_DIM(), T_BG());
     tft.getTextBounds(unit, 0, 0, &tx, &ty, &tw, &th);
     tft.setCursor((SCREEN_W - tw) / 2, 62);
     tft.print(unit);
@@ -759,8 +913,8 @@ static void drawDial(float pct, float warnPct,
   const int BAR_W = SCREEN_W - 12;
   const int BAR_H = 22;
 
-  tft.fillRect(BAR_X, BAR_Y, BAR_W, BAR_H, 0x1082);
-  tft.drawRect(BAR_X - 1, BAR_Y - 1, BAR_W + 2, BAR_H + 2, COLOR_DIMGRAY);
+  tft.fillRect(BAR_X, BAR_Y, BAR_W, BAR_H, themeDark ? 0x1082 : 0xD69A);
+  tft.drawRect(BAR_X - 1, BAR_Y - 1, BAR_W + 2, BAR_H + 2, T_SEP());
 
   if (hasData && pct > 0.0f) {
     int filled = (int)(BAR_W * constrain(pct, 0.0f, 1.0f));
@@ -776,13 +930,7 @@ static void drawDial(float pct, float warnPct,
     tft.drawFastVLine(warnX, BAR_Y - 2, BAR_H + 4, 0xFFFF);
   }
 
-  // ── Corner icons ──────────────────────────────────────────────
-  // Centered hint: square icon + "Menu"
-  tft.setTextSize(1);
-  tft.setTextColor(COLOR_DIMGRAY, TFT_BLACK);
-  drawSquareIcon(SCREEN_W/2 - 14, SCREEN_H - 6, COLOR_DIMGRAY);
-  tft.setCursor(SCREEN_W/2 - 6, SCREEN_H - 10);
-  tft.print("Menu");
+  { HintSlot s[] = {{"joy","Nav"},{"sq","Menu"}}; drawPageHints(s, 2); }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -792,18 +940,18 @@ static void drawDial(float pct, float warnPct,
 void ui_gauge(int pidIndex) {
   // No PIDs active — show placeholder instead of blank/crash
   if (getActivePIDCount() == 0) {
-    tft.fillScreen(TFT_BLACK);
-    tft.fillRect(0, 0, SCREEN_W, 14, TFT_DGRAY);
+    tft.fillScreen(T_BG());
+    tft.fillRect(0, 0, SCREEN_W, 14, T_BAR());
     tft.setTextSize(1);
-    tft.setTextColor(TFT_WHITE, TFT_DGRAY);
+    tft.setTextColor(T_BAR_TXT(), T_BAR());
     tft.setCursor(2, 3); tft.print("GAUGE");
     tft.fillCircle(5, 7, 3, isBTConnected() ? 0x07E0 : 0xF800);
-    tft.drawFastHLine(4, 14, SCREEN_W - 8, COLOR_DIMGRAY);
-    drawCentered("No PIDs selected", 50, 1, TFT_GRAY);
-    drawCentered("Open Menu to", 65, 1, TFT_GRAY);
-    drawCentered("configure PIDs", 75, 1, TFT_GRAY);
-    tft.setTextSize(1); tft.setTextColor(COLOR_DIMGRAY, TFT_BLACK);
-    drawSquareIcon(SCREEN_W/2 - 14, SCREEN_H - 6, COLOR_DIMGRAY);
+    tft.drawFastHLine(4, 14, SCREEN_W - 8, T_SEP());
+    drawCentered("No PIDs selected", 50, 1, T_DIM());
+    drawCentered("Open Menu to", 65, 1, T_DIM());
+    drawCentered("configure PIDs", 75, 1, T_DIM());
+    tft.setTextSize(1); tft.setTextColor(T_DIM(), T_BG());
+    drawSquareIcon(SCREEN_W/2 - 14, SCREEN_H - 6, T_DIM());
     tft.setCursor(SCREEN_W/2 - 6, SCREEN_H - 10); tft.print("Menu");
     flushFramebuf();
     return;
@@ -844,25 +992,23 @@ void ui_gauge(int pidIndex) {
 
   if (p.isBoolean) {
     // Boolean PIDs — navy background, large ON/OFF
-    tft.fillScreen(COLOR_NAVY);
+    tft.fillScreen(T_BG());
     if (regenActive && (millis() / 400) % 2 == 0)
       tft.drawRect(0, 0, SCREEN_W, SCREEN_H, COLOR_ARC_RED);
     tft.setTextSize(1);
-    tft.setTextColor(COLOR_LTGRAY, COLOR_NAVY);
+    tft.setTextColor(T_FG(), T_BG());
     int16_t tx, ty; uint16_t tw, th;
     tft.getTextBounds(title.c_str(), 0, 0, &tx, &ty, &tw, &th);
     tft.setCursor((SCREEN_W - tw) / 2, 3);
     tft.print(title.c_str());
-    tft.setTextColor(COLOR_DIMGRAY, COLOR_NAVY);
+    tft.setTextColor(T_DIM(), T_BG());
     String pageStr = String(aPos) + "/" + String(aTotal);
     tft.setCursor(SCREEN_W - (int)(pageStr.length() * 6) - 2, 3);
     tft.print(pageStr);
     const char* boolStr = !hasData ? "---" : (val != 0.0 ? "ON" : "OFF");
     uint16_t boolColor  = !hasData ? COLOR_DIMGRAY : (val != 0.0 ? COLOR_ARC_RED : 0x07E0);
     drawCentered(boolStr, 50, 3, boolColor);
-    drawSquareIcon(SCREEN_W/2 - 14, SCREEN_H - 6, COLOR_DIMGRAY);
-    tft.setTextSize(1); tft.setTextColor(COLOR_DIMGRAY, TFT_BLACK);
-    tft.setCursor(SCREEN_W/2 - 6, SCREEN_H - 10); tft.print("Menu");
+    { HintSlot s[] = {{"joy","Nav"},{"sq","Menu"}}; drawPageHints(s, 2); }
   } else {
     // Numeric PIDs — arc dial
     float pct = 0.0f;
@@ -903,23 +1049,23 @@ void ui_gauge(int pidIndex) {
 // probe state now managed by obd.cpp background probe
 
 void ui_menuPIDs(int cursor) {
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(T_BG());
 
   // Title bar
-  tft.fillRect(0, 0, SCREEN_W, 14, TFT_DGRAY);
-  tft.drawFastHLine(0, 14, SCREEN_W, TFT_GRAY);
-  tft.setTextColor(TFT_WHITE);
+  tft.fillRect(0, 0, SCREEN_W, 14, T_BAR());
+  tft.drawFastHLine(0, 14, SCREEN_W, T_SEP());
+  tft.setTextColor(T_FG());
   tft.setTextSize(1);
   tft.setCursor(2, 3);
   tft.print("SELECT PIDS");
 
   // Status: active PID count (bg probe removed)
-  tft.setTextColor(TFT_GRAY);
+  tft.setTextColor(T_DIM(), T_BAR());
   tft.setCursor(74, 3);
   tft.print(String(getActivePIDCount()) + " active");
 
   // List — 7 rows
-  const int MAX_VISIBLE = 7;
+  const int MAX_VISIBLE = 6;
   const int ROW_H       = 13;
   const int ROW_START   = 18;
 
@@ -935,18 +1081,18 @@ void ui_menuPIDs(int cursor) {
     bool active   = isPIDActive(idx);
     bool isCursor = (idx == cursor);
 
-    uint16_t bg = isCursor ? TFT_DGRAY : TFT_BLACK;
+    uint16_t bg = isCursor ? T_SEL() : T_BG();
 
-    if (isCursor) tft.fillRect(0, ROW_START + i * ROW_H, SCREEN_W, ROW_H, TFT_DGRAY);
+    if (isCursor) tft.fillRect(0, ROW_START + i * ROW_H, SCREEN_W, ROW_H, T_SEL());
 
     // Checkbox [x]/[ ] — 12px wide
     tft.setTextSize(1);
-    tft.setTextColor(active ? TFT_GREEN : TFT_GRAY, bg);
+    tft.setTextColor(active ? TFT_GREEN : T_DIM(), bg);
     tft.setCursor(2, ROW_START + i * ROW_H + 2);
     tft.print(active ? "[x]" : "[ ]");
 
     // PID name — yellow on cursor, white otherwise
-    uint16_t nameColor = isCursor ? TFT_YELLOW : TFT_WHITE;
+    uint16_t nameColor = isCursor ? TFT_YELLOW : T_FG();
 
     tft.setTextColor(nameColor, bg);
     tft.setCursor(22, ROW_START + i * ROW_H + 2);
@@ -956,7 +1102,7 @@ void ui_menuPIDs(int cursor) {
 
     // Status on far right — always show live value if we have it, --- if not
     String status = "";
-    uint16_t statusColor = TFT_DGRAY;
+    uint16_t statusColor = T_DIM();
 
     OBDValues& v = getOBDValues();
     if (v.hasData[idx]) {
@@ -970,7 +1116,7 @@ void ui_menuPIDs(int cursor) {
       statusColor = TFT_GREEN;
     } else {
       status = "---";
-      statusColor = TFT_DGRAY;
+      statusColor = T_DIM();
     }
 
     // Right-align status at x=127
@@ -981,14 +1127,7 @@ void ui_menuPIDs(int cursor) {
   }
 
   // Hint bar
-  tft.drawFastHLine(0, ROW_START + MAX_VISIBLE * ROW_H, SCREEN_W, TFT_DGRAY);
-  drawJoystickIcon(10,  118, TFT_CYAN);
-  tft.setTextSize(1); tft.setTextColor(TFT_GRAY, TFT_BLACK);
-  tft.setCursor(20, 115); tft.print("Tog");
-  drawHoldArc(52, 118, TFT_CYAN);
-  tft.setCursor(62, 115); tft.print("OK");
-  drawTriangleIcon(100, 118, TFT_CYAN);
-  tft.setCursor(110, 115); tft.print("Quit");
+  { HintSlot s[] = {{"joy","Nav"},{"tri","Back"}}; drawPageHints(s, 2); }
 
   flushFramebuf();
 }
@@ -998,13 +1137,13 @@ void ui_menuPIDs(int cursor) {
 // ─────────────────────────────────────────────────────────────
 
 void ui_menuPIDProgress(int done, int total, const char* name) {
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(T_BG());
 
   drawTitle("Scanning PIDs");
 
   // PID name being probed
   tft.setTextSize(1);
-  tft.setTextColor(TFT_CYAN, TFT_BLACK);
+  tft.setTextColor(TFT_CYAN, T_BG());
   if (total > 0 && done < total) {
     drawCentered(name, 35, 1, TFT_CYAN);
   } else {
@@ -1013,13 +1152,13 @@ void ui_menuPIDProgress(int done, int total, const char* name) {
 
   // Progress bar
   int pct = (total > 0) ? (done * 100 / total) : 100;
-  tft.drawRect(4, 55, 120, 10, TFT_WHITE);
+  tft.drawRect(4, 55, 120, 10, T_SEP());
   int filled = (int)(118.0f * pct / 100.0f);
   if (filled > 0) tft.fillRect(5, 56, filled, 8, TFT_CYAN);
 
   // Counter
   String counter = String(done) + " / " + String(total);
-  drawCentered(counter.c_str(), 72, 1, TFT_GRAY);
+  drawCentered(counter.c_str(), 72, 1, T_DIM());
 
   flushFramebuf();
 }
@@ -1061,52 +1200,38 @@ void ui_updateLegacy(int state) {
 // Items: PIDs / Connect / Settings / Defaults / Back
 // ─────────────────────────────────────────────────────────────
 void ui_menu(int selection, bool connected) {
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(T_BG());
 
   // Title bar
-  tft.fillRect(0, 0, SCREEN_W, 14, TFT_DGRAY);
-  tft.drawFastHLine(0, 14, SCREEN_W, TFT_GRAY);
+  tft.fillRect(0, 0, SCREEN_W, 14, T_BAR());
+  tft.drawFastHLine(0, 14, SCREEN_W, T_SEP());
   tft.setTextSize(1);
-  tft.setTextColor(TFT_WHITE, TFT_DGRAY);
+  tft.setTextColor(T_BAR_TXT(), T_BAR());
   tft.setCursor(2, 3);
   tft.print("MENU");
 
   // Connection status top-right
-  tft.setTextColor(connected ? TFT_GREEN : TFT_RED, TFT_DGRAY);
+  tft.setTextColor(connected ? TFT_GREEN : TFT_RED, T_BAR());
   tft.setCursor(SCREEN_W - 42, 3);
   tft.print(connected ? "ONLINE" : "OFFLN");
 
   // Menu items
-  const char* items[] = { "PIDs", "Connect", "Settings", "Defaults" };
-  const int   ITEM_COUNT = 4;
+  const char* items[] = { "PIDs", "Connect", "Settings" };
+  const int   ITEM_COUNT = 3;
   const int   ROW_H   = 20;
   const int   ROW_Y   = 20;
 
   for (int i = 0; i < ITEM_COUNT; i++) {
     bool sel = (i == selection);
-    if (sel) tft.fillRect(0, ROW_Y + i * ROW_H, SCREEN_W, ROW_H, TFT_DGRAY);
+    if (sel) tft.fillRect(0, ROW_Y + i * ROW_H, SCREEN_W, ROW_H, T_SEL());
     tft.setTextSize(1);
-    tft.setTextColor(sel ? TFT_YELLOW : TFT_WHITE, sel ? TFT_DGRAY : TFT_BLACK);
+    tft.setTextColor(sel ? TFT_YELLOW : T_FG(), sel ? T_SEL() : T_BG());
     tft.setCursor(10, ROW_Y + i * ROW_H + 4);
     tft.print(sel ? "> " : "  ");
     tft.print(items[i]);
   }
 
-  // Hint bar — 3 slots × 42px = 126px, fits within 128px
-  tft.drawFastHLine(0, SCREEN_H - 13, SCREEN_W, TFT_DGRAY);
-  tft.fillRect(0, SCREEN_H - 12, SCREEN_W, 12, TFT_BLACK);
-  // Slot 1 (x=2): joystick + "Up/Dn"
-  drawJoystickIcon(7,  SCREEN_H - 6, TFT_CYAN);
-  tft.setTextColor(TFT_GRAY, TFT_BLACK); tft.setCursor(15, SCREEN_H - 9);
-  tft.print("Up/Dn");
-  // Slot 2 (x=44): square + "Sel"
-  drawSquareIcon(49, SCREEN_H - 6, TFT_CYAN);
-  tft.setTextColor(TFT_GRAY, TFT_BLACK); tft.setCursor(57, SCREEN_H - 9);
-  tft.print("Sel");
-  // Slot 3 (x=86): triangle + "Back"
-  drawTriangleIcon(91, SCREEN_H - 6, TFT_CYAN);
-  tft.setTextColor(TFT_GRAY, TFT_BLACK); tft.setCursor(99, SCREEN_H - 9);
-  tft.print("Back");
+  { HintSlot s[] = {{"joy","Nav"},{"tri","Back"}}; drawPageHints(s, 2); }
 
   flushFramebuf();
 }
@@ -1114,29 +1239,31 @@ void ui_menu(int selection, bool connected) {
 // ─────────────────────────────────────────────────────────────
 // ui_menuSettings — stub, shows placeholder
 // ─────────────────────────────────────────────────────────────
-void ui_menuSettings(int /*cursor*/) {
-  tft.fillScreen(TFT_BLACK);
-  tft.fillRect(0, 0, SCREEN_W, 14, TFT_DGRAY);
+void ui_menuSettings(int cursor) {
+  tft.fillScreen(T_BG());
+  tft.fillRect(0, 0, SCREEN_W, 14, T_BAR());
   tft.setTextSize(1);
-  tft.setTextColor(TFT_WHITE, TFT_DGRAY);
+  tft.setTextColor(T_BAR_TXT(), T_BAR());
   tft.setCursor(2, 3); tft.print("SETTINGS");
-  drawCentered("Coming soon", 55, 1, TFT_GRAY);
-  tft.setTextSize(1); tft.setTextColor(TFT_GRAY, TFT_BLACK);
-  tft.setCursor(2, SCREEN_H - 9); tft.print("^:back");
+
+  // Single setting: Theme
+  const int ROW_Y = 24, ROW_H = 18;
+  bool sel = (cursor == 0);
+  if (sel) tft.fillRect(0, ROW_Y, SCREEN_W, ROW_H, T_SEL());
+
+  tft.setTextSize(1);
+  tft.setTextColor(sel ? TFT_YELLOW : T_FG(), sel ? T_SEL() : T_BG());
+  tft.setCursor(6, ROW_Y + 5);
+  tft.print(sel ? "> " : "  ");
+  tft.print("Theme");
+
+  // Show current value right-aligned
+  const char* themeLabel = themeDark ? "Dark" : "Light";
+  tft.setTextColor(TFT_CYAN, sel ? T_SEL() : T_BG());
+  tft.setCursor(SCREEN_W - (int)(strlen(themeLabel)*6) - 6, ROW_Y + 5);
+  tft.print(themeLabel);
+
+  { HintSlot s[] = {{"joy","Nav"},{"tri","Back"}}; drawPageHints(s, 2); }
   flushFramebuf();
 }
 
-// ─────────────────────────────────────────────────────────────
-// ui_menuDefaults — stub, shows placeholder
-// ─────────────────────────────────────────────────────────────
-void ui_menuDefaults(int /*cursor*/) {
-  tft.fillScreen(TFT_BLACK);
-  tft.fillRect(0, 0, SCREEN_W, 14, TFT_DGRAY);
-  tft.setTextSize(1);
-  tft.setTextColor(TFT_WHITE, TFT_DGRAY);
-  tft.setCursor(2, 3); tft.print("DEFAULTS");
-  drawCentered("Coming soon", 55, 1, TFT_GRAY);
-  tft.setTextSize(1); tft.setTextColor(TFT_GRAY, TFT_BLACK);
-  tft.setCursor(2, SCREEN_H - 9); tft.print("^:back");
-  flushFramebuf();
-}
