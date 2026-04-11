@@ -3,6 +3,7 @@
 #include "bt.h"
 #include "obd.h"
 #include "input.h"
+#include "nav.h"
 #include <Preferences.h>
 
 AppState appState = STATE_GAUGE;
@@ -31,7 +32,7 @@ void setup() {
 }
 
 void loop() {
-  handleButton();
+  handleNav(getIntent(), appState);
 
   // ── SILENT BOOT CONNECT ───────────────────────────────────────
   // One-shot: if a saved device exists, try to connect silently

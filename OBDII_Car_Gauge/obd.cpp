@@ -1,7 +1,6 @@
 #include "obd.h"
 #include "bt.h"
 #include "pids.h"
-#include "input.h"
 #include "ui.h"
 #include <math.h>
 #include <Preferences.h>
@@ -164,7 +163,6 @@ static bool sendAndWait(const char* cmd, unsigned long timeoutMs = 1500) {
   unsigned long t = millis();
   while (!responseReady && millis() - t < timeoutMs) {
     readBTSerial();
-    handleButton();
     delay(5);
   }
   return responseReady;

@@ -830,7 +830,7 @@ void ui_menuConnect(int /*unused*/, int selected) {
 #define COLOR_NAVY      0x0000   // pure black background
 #define COLOR_ARCBG     0x18E3   // dark gray arc background
 #define COLOR_ARC_BLUE  0x07FF   // cyan-blue (cold/normal)
-#define COLOR_ARC_YEL   0xFFE0   // yellow (caution)
+#define COLOR_ARC_YEL   0xFFE0   // yellow (caution) — only use in dark mode
 #define COLOR_ARC_RED   0xF800   // red (warn)
 #define COLOR_DIMGRAY   0x4208   // dim gray
 #define COLOR_LTGRAY    0xC618   // light gray
@@ -887,7 +887,7 @@ static void drawDial(float pct, float warnPct,
 
   // ── Value — large, below header ──────────────────────────────
   // Layout: header(14) | value(18-58) | unit(60) | bar(72-96) | hint(118)
-  uint16_t valColor = hasData ? COLOR_ARC_YEL : COLOR_DIMGRAY;
+  uint16_t valColor = hasData ? (themeDark ? COLOR_ARC_YEL : 0x000F) : T_DIM();
   tft.setTextSize(4);
   tft.setTextColor(valColor, T_BG());
   tft.getTextBounds(valStr, 0, 0, &tx, &ty, &tw, &th);
@@ -930,7 +930,7 @@ static void drawDial(float pct, float warnPct,
     tft.drawFastVLine(warnX, BAR_Y - 2, BAR_H + 4, 0xFFFF);
   }
 
-  { HintSlot s[] = {{"joy","Nav"},{"sq","Menu"}}; drawPageHints(s, 2); }
+  { HintSlot s[] = {{"joy","Nav"},{"tri","Menu"}}; drawPageHints(s, 2); }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1008,7 +1008,7 @@ void ui_gauge(int pidIndex) {
     const char* boolStr = !hasData ? "---" : (val != 0.0 ? "ON" : "OFF");
     uint16_t boolColor  = !hasData ? COLOR_DIMGRAY : (val != 0.0 ? COLOR_ARC_RED : 0x07E0);
     drawCentered(boolStr, 50, 3, boolColor);
-    { HintSlot s[] = {{"joy","Nav"},{"sq","Menu"}}; drawPageHints(s, 2); }
+    { HintSlot s[] = {{"joy","Nav"},{"tri","Menu"}}; drawPageHints(s, 2); }
   } else {
     // Numeric PIDs — arc dial
     float pct = 0.0f;
