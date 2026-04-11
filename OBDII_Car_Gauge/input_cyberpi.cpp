@@ -74,7 +74,7 @@ InputIntent getIntent() {
   static bool          longFired   = false;
   static unsigned long lastScroll  = 0;
 
-  const uint8_t MASK = BIT_JL|BIT_JU|BIT_JR|BIT_JP|BIT_JD|BIT_BTNB|BIT_BTNA;
+  const uint8_t MASK = BIT_JL|BIT_JU|BIT_JR|BIT_JP|BIT_JD|BIT_BTNB;  // Square excluded
 
   uint8_t p0   = readP0() & MASK;
   uint8_t prev = prevP0   & MASK;
@@ -120,7 +120,7 @@ InputIntent getIntent() {
       else if (b & BIT_JR)   intent = INTENT_RIGHT;
       else if (b & BIT_JP)   intent = INTENT_SELECT;
       else if (b & BIT_BTNB) intent = INTENT_BACK;
-      else if (b & BIT_BTNA) intent = INTENT_MENU;
+      // BIT_BTNA (Square) intentionally produces no intent — Triangle is the only navigation button
     }
     heldBit = 0;
   }

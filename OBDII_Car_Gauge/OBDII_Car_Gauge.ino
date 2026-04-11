@@ -35,14 +35,13 @@ void loop() {
   handleNav(getIntent(), appState);
 
   // ── SILENT BOOT CONNECT ───────────────────────────────────────
-  // One-shot: if a saved device exists, try to connect silently
-  // while the gauge is already showing. No UI change.
-  if (!bgConnectDone) {
+  // One-shot after first gauge draw — use async connect so screen stays live
+  if (!bgConnectDone && appState == STATE_GAUGE) {
     bgConnectDone = true;
     if (hasSavedDevice()) {
-      tryAutoConnect(appState);  // connect to default device, blocks ~1-2s
+      BTSavedDevice* dev = getSavedDevice(getDefaultDeviceIndex());
+      if (dev) startConnectAsync(dev->mac, dev->name);
     }
-    return;
   }
 
   // ── ELM INIT ─────────────────────────────────────────────────
@@ -61,10 +60,17 @@ void loop() {
 
   // ── GAUGE ─────────────────────────────────────────────────────
   if (appState == STATE_GAUGE) {
+    // Check if background boot connect just finished
+    bool connectOk = false;
+    if (isConnectFinished(connectOk) && connectOk) {
+      resetOBD(); resetGaugePage();
+      appState = STATE_INIT_ELM;
+      return;
+    }
     if (isBTConnected()) {
       handleBLE(appState);
       handleOBD(appState);
-      if (appState != STATE_GAUGE) return;  // BT dropped → stays in gauge, dot goes red
+      if (appState != STATE_GAUGE) return;
     }
     ui_gauge(gaugePage);
     return;

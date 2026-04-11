@@ -377,7 +377,7 @@ static void drawProgressBar(int x, int y, int w, int h, int pct) {
   tft.drawRect(x, y, w, h, T_SEP());
   int filled = (int)((w - 2) * pct / 100.0);
   if (filled > 0)
-    tft.fillRect(x + 1, y + 1, filled, h - 2, TFT_CYAN);
+    tft.fillRect(x + 1, y + 1, filled, h - 2, (themeDark ? TFT_CYAN  : 0x0055));
   if (filled < w - 2)
     tft.fillRect(x + 1 + filled, y + 1, w - 2 - filled, h - 2, T_BG());
 }
@@ -494,9 +494,10 @@ static void drawSquareIcon(int cx, int cy, uint16_t color) {
 }
 
 static void drawTriangleIcon(int cx, int cy, uint16_t color) {
-  tft.drawLine(cx,   cy-4, cx-4, cy+4, color);
-  tft.drawLine(cx-4, cy+4, cx+4, cy+4, color);
-  tft.drawLine(cx+4, cy+4, cx,   cy-4, color);
+  // Rotated 90° CW — apex right, base left (matches physical button orientation)
+  tft.drawLine(cx+4, cy,   cx-4, cy-4, color);  // top edge
+  tft.drawLine(cx-4, cy-4, cx-4, cy+4, color);  // left edge (base)
+  tft.drawLine(cx-4, cy+4, cx+4, cy,   color);  // bottom edge
 }
 
 static void drawCenterDotIcon(int cx, int cy, uint16_t color) {
@@ -582,7 +583,7 @@ void ui_autoConnect() {
 
   // Spinner
   tft.setTextSize(2);
-  tft.setTextColor(TFT_CYAN, T_BG());
+  tft.setTextColor((themeDark ? TFT_CYAN  : 0x0055), T_BG());
   tft.setCursor(58, 8);
   tft.print(spinner[frame]);
 
@@ -603,7 +604,7 @@ void ui_autoConnect() {
   // Progress bar — fills left to right over 5s
   int filled = (int)(118.0f * (pct / 100.0f));
   tft.drawRect(4, 80, 120, 8, T_SEP());
-  if (filled > 0)   tft.fillRect(5, 81, filled, 6, TFT_CYAN);
+  if (filled > 0)   tft.fillRect(5, 81, filled, 6, (themeDark ? TFT_CYAN  : 0x0055));
   if (filled < 118) tft.fillRect(5 + filled, 81, 118 - filled, 6, T_BG());
 
   // Status hint at bottom
@@ -624,7 +625,7 @@ void ui_connecting() {
   tft.fillScreen(T_BG());
 
   tft.setTextSize(2);
-  tft.setTextColor(TFT_YELLOW, T_BG());
+  tft.setTextColor((themeDark ? TFT_YELLOW : 0x000F), T_BG());
   tft.setCursor(58, 8);
   tft.print(spinner[frame]);
 
@@ -659,7 +660,7 @@ static void showWaitingData() {
   tft.fillScreen(T_BG());
 
   tft.setTextSize(2);
-  tft.setTextColor(TFT_GREEN, T_BG());
+  tft.setTextColor((themeDark ? TFT_GREEN : 0x0300), T_BG());
   tft.setCursor(58, 8);
   tft.print(spinner[frame]);
 
@@ -731,7 +732,7 @@ void ui_menuConnect(int /*unused*/, int selected) {
   tft.print("CONNECT");
 
   // Show counts in title
-  tft.setTextColor(TFT_CYAN, T_BAR());
+  tft.setTextColor((themeDark ? TFT_CYAN  : 0x0055), T_BAR());
   String info = "";
   if (savedCount > 0) info += String(savedCount) + "S";
   if (newScanCount > 0) info += (info.length() > 0 ? " " : "") + String(newScanCount) + "N";
@@ -748,7 +749,7 @@ void ui_menuConnect(int /*unused*/, int selected) {
   // First row always: [ SCAN ]
   bool scanSel = (selected == 0);
   if (scanSel) tft.fillRect(0, ROW_Y, SCREEN_W, ROW_H, T_SEL());
-  tft.setTextColor(TFT_CYAN, scanSel ? T_SEL() : T_BG());
+  tft.setTextColor((themeDark ? TFT_CYAN  : 0x0055), scanSel ? T_SEL() : T_BG());
   tft.setCursor(4, ROW_Y + 3);
   tft.print(scanSel ? "> [ SCAN ]" : "  [ SCAN ]");
 
@@ -787,7 +788,7 @@ void ui_menuConnect(int /*unused*/, int selected) {
       if (label.length() > 14) label = label.substring(0, 14);
       String marker = isDefault ? "[*] " : "[ ] ";
       uint16_t col = isDefault ? 0x07E0 : TFT_WHITE;
-      if (sel) col = TFT_YELLOW;
+      if (sel) col = (themeDark ? TFT_YELLOW : 0x000F);
       tft.setTextColor(col, sel ? T_SEL() : T_BG());
       tft.setCursor(4, ROW_Y+i*ROW_H+3);
       tft.print(marker + label);
@@ -804,7 +805,7 @@ void ui_menuConnect(int /*unused*/, int selected) {
       if (!dev) continue;
       String label = dev->name != "" ? dev->name : dev->address;
       if (label.length() > 16) label = label.substring(0, 16);
-      uint16_t col = sel ? TFT_YELLOW : 0x8410;
+      uint16_t col = sel ? (themeDark ? TFT_YELLOW : 0x000F) : T_DIM();
       tft.setTextColor(col, sel ? T_SEL() : T_BG());
       tft.setCursor(4, ROW_Y+i*ROW_H+3);
       tft.print("  " + label);
@@ -881,7 +882,7 @@ static void drawDial(float pct, float warnPct,
   tft.print(pageStr);
 
   // Connection status dot — top left, green=connected red=not
-  tft.fillCircle(5, 7, 3, isBTConnected() ? 0x07E0 : 0xF800);
+  tft.fillCircle(5, 7, 3, isBTConnected() ? (themeDark ? 0x07E0 : 0x0300) : (themeDark ? 0xF800 : 0xA000));
 
   tft.drawFastHLine(4, 14, SCREEN_W - 8, T_SEP());
 
@@ -945,7 +946,7 @@ void ui_gauge(int pidIndex) {
     tft.setTextSize(1);
     tft.setTextColor(T_BAR_TXT(), T_BAR());
     tft.setCursor(2, 3); tft.print("GAUGE");
-    tft.fillCircle(5, 7, 3, isBTConnected() ? 0x07E0 : 0xF800);
+    tft.fillCircle(5, 7, 3, isBTConnected() ? (themeDark ? 0x07E0 : 0x0300) : (themeDark ? 0xF800 : 0xA000));
     tft.drawFastHLine(4, 14, SCREEN_W - 8, T_SEP());
     drawCentered("No PIDs selected", 50, 1, T_DIM());
     drawCentered("Open Menu to", 65, 1, T_DIM());
@@ -1053,88 +1054,85 @@ void ui_menuPIDs(int cursor) {
 
   // Title bar
   tft.fillRect(0, 0, SCREEN_W, 14, T_BAR());
-  tft.drawFastHLine(0, 14, SCREEN_W, T_SEP());
-  tft.setTextColor(T_FG());
+  tft.setTextColor(T_BAR_TXT(), T_BAR());
   tft.setTextSize(1);
   tft.setCursor(2, 3);
   tft.print("SELECT PIDS");
-
-  // Status: active PID count (bg probe removed)
   tft.setTextColor(T_DIM(), T_BAR());
   tft.setCursor(74, 3);
   tft.print(String(getActivePIDCount()) + " active");
 
-  // List — 7 rows
-  const int MAX_VISIBLE = 6;
-  const int ROW_H       = 13;
-  const int ROW_START   = 18;
+  // Virtual list: index 0 = Toggle All, index 1..PID_COUNT = PIDs
+  const int TOTAL      = PID_COUNT + 1;
+  const int MAX_VIS    = 6;
+  const int ROW_H      = 13;
+  const int ROW_START  = 18;
 
-  int total = PID_COUNT;  // show ALL pids
-  int start = cursor - 2;
+  // Scroll: cursor travels to bottom of visible area before list scrolls
+  int start = cursor - (MAX_VIS - 1);
   if (start < 0) start = 0;
-  if (start > total - MAX_VISIBLE) start = max(0, total - MAX_VISIBLE);
+  if (start > TOTAL - MAX_VIS) start = max(0, TOTAL - MAX_VIS);
 
-  for (int i = 0; i < MAX_VISIBLE; i++) {
-    int idx = start + i;
-    if (idx >= total) break;
+  for (int i = 0; i < MAX_VIS; i++) {
+    int index = start + i;
+    if (index >= TOTAL) break;
 
-    bool active   = isPIDActive(idx);
-    bool isCursor = (idx == cursor);
-
+    bool isCursor = (index == cursor);
     uint16_t bg = isCursor ? T_SEL() : T_BG();
+    if (isCursor) tft.fillRect(0, ROW_START + i*ROW_H, SCREEN_W, ROW_H, T_SEL());
 
-    if (isCursor) tft.fillRect(0, ROW_START + i * ROW_H, SCREEN_W, ROW_H, T_SEL());
-
-    // Checkbox [x]/[ ] — 12px wide
     tft.setTextSize(1);
-    tft.setTextColor(active ? TFT_GREEN : T_DIM(), bg);
-    tft.setCursor(2, ROW_START + i * ROW_H + 2);
-    tft.print(active ? "[x]" : "[ ]");
 
-    // PID name — yellow on cursor, white otherwise
-    uint16_t nameColor = isCursor ? TFT_YELLOW : T_FG();
+    if (index == 0) {
+      // Toggle All / None item
+      bool anyActive = false;
+      for (int j = 0; j < PID_COUNT; j++) if (isPIDActive(j)) { anyActive = true; break; }
+      uint16_t col = isCursor ? (themeDark ? TFT_YELLOW : 0x000F) : T_DIM();
+      tft.setTextColor(col, bg);
+      tft.setCursor(2, ROW_START + i*ROW_H + 2);
+      tft.print(anyActive ? "[ ] Deselect All" : "[x] Select All");
 
-    tft.setTextColor(nameColor, bg);
-    tft.setCursor(22, ROW_START + i * ROW_H + 2);
-    String label = String(PIDS[idx].name);
-    if (label.length() > 13) label = label.substring(0, 13);
-    tft.print(label);
-
-    // Status on far right — always show live value if we have it, --- if not
-    String status = "";
-    uint16_t statusColor = T_DIM();
-
-    OBDValues& v = getOBDValues();
-    if (v.hasData[idx]) {
-      if (PIDS[idx].isBoolean)
-        status = v.values[idx] ? "ON" : "OFF";
-      else if (PIDS[idx].valMax >= 1000)
-        status = String((int)v.values[idx]);
-      else
-        status = String(v.values[idx], 0);
-      if (status.length() > 6) status = status.substring(0, 6);
-      statusColor = TFT_GREEN;
     } else {
-      status = "---";
-      statusColor = T_DIM();
-    }
+      int idx = index - 1;
+      bool active = isPIDActive(idx);
 
-    // Right-align status at x=127
-    int statusX = 127 - (status.length() * 6);
-    tft.setTextColor(statusColor, bg);
-    tft.setCursor(statusX, ROW_START + i * ROW_H + 2);
-    tft.print(status);
+      // Checkbox
+      tft.setTextColor(active ? (themeDark ? TFT_GREEN : 0x0300) : T_DIM(), bg);
+      tft.setCursor(2, ROW_START + i*ROW_H + 2);
+      tft.print(active ? "[x]" : "[ ]");
+
+      // PID name
+      uint16_t nameColor = isCursor ? (themeDark ? TFT_YELLOW : 0x000F) : T_FG();
+      tft.setTextColor(nameColor, bg);
+      tft.setCursor(22, ROW_START + i*ROW_H + 2);
+      String label = String(PIDS[idx].name);
+      if (label.length() > 13) label = label.substring(0, 13);
+      tft.print(label);
+
+      // Live value right-aligned
+      OBDValues& v = getOBDValues();
+      String status = "---";
+      uint16_t statusColor = T_DIM();
+      if (v.hasData[idx]) {
+        if (PIDS[idx].isBoolean)
+          status = v.values[idx] ? "ON" : "OFF";
+        else if (PIDS[idx].valMax >= 1000)
+          status = String((int)v.values[idx]);
+        else
+          status = String(v.values[idx], 0);
+        if (status.length() > 6) status = status.substring(0, 6);
+        statusColor = (themeDark ? TFT_GREEN : 0x0300);
+      }
+      int statusX = 127 - (int)(status.length() * 6);
+      tft.setTextColor(statusColor, bg);
+      tft.setCursor(statusX, ROW_START + i*ROW_H + 2);
+      tft.print(status);
+    }
   }
 
-  // Hint bar
   { HintSlot s[] = {{"joy","Nav"},{"tri","Back"}}; drawPageHints(s, 2); }
-
   flushFramebuf();
 }
-
-// ─────────────────────────────────────────────────────────────
-// PID scan progress — called from obd.cpp probe loop
-// ─────────────────────────────────────────────────────────────
 
 void ui_menuPIDProgress(int done, int total, const char* name) {
   tft.fillScreen(T_BG());
@@ -1143,18 +1141,18 @@ void ui_menuPIDProgress(int done, int total, const char* name) {
 
   // PID name being probed
   tft.setTextSize(1);
-  tft.setTextColor(TFT_CYAN, T_BG());
+  tft.setTextColor((themeDark ? TFT_CYAN  : 0x0055), T_BG());
   if (total > 0 && done < total) {
-    drawCentered(name, 35, 1, TFT_CYAN);
+    drawCentered(name, 35, 1, (themeDark ? TFT_CYAN  : 0x0055));
   } else {
-    drawCentered("Done!", 35, 1, TFT_GREEN);
+    drawCentered("Done!", 35, 1, (themeDark ? TFT_GREEN : 0x0300));
   }
 
   // Progress bar
   int pct = (total > 0) ? (done * 100 / total) : 100;
   tft.drawRect(4, 55, 120, 10, T_SEP());
   int filled = (int)(118.0f * pct / 100.0f);
-  if (filled > 0) tft.fillRect(5, 56, filled, 8, TFT_CYAN);
+  if (filled > 0) tft.fillRect(5, 56, filled, 8, (themeDark ? TFT_CYAN  : 0x0055));
 
   // Counter
   String counter = String(done) + " / " + String(total);
@@ -1211,7 +1209,7 @@ void ui_menu(int selection, bool connected) {
   tft.print("MENU");
 
   // Connection status top-right
-  tft.setTextColor(connected ? TFT_GREEN : TFT_RED, T_BAR());
+  tft.setTextColor(connected ? (themeDark ? TFT_GREEN : 0x0300) : (themeDark ? TFT_RED : 0xA000), T_BAR());
   tft.setCursor(SCREEN_W - 42, 3);
   tft.print(connected ? "ONLINE" : "OFFLN");
 
@@ -1225,7 +1223,7 @@ void ui_menu(int selection, bool connected) {
     bool sel = (i == selection);
     if (sel) tft.fillRect(0, ROW_Y + i * ROW_H, SCREEN_W, ROW_H, T_SEL());
     tft.setTextSize(1);
-    tft.setTextColor(sel ? TFT_YELLOW : T_FG(), sel ? T_SEL() : T_BG());
+    tft.setTextColor(sel ? (themeDark ? TFT_YELLOW : 0x000F) : T_FG(), sel ? T_SEL() : T_BG());
     tft.setCursor(10, ROW_Y + i * ROW_H + 4);
     tft.print(sel ? "> " : "  ");
     tft.print(items[i]);
@@ -1252,14 +1250,14 @@ void ui_menuSettings(int cursor) {
   if (sel) tft.fillRect(0, ROW_Y, SCREEN_W, ROW_H, T_SEL());
 
   tft.setTextSize(1);
-  tft.setTextColor(sel ? TFT_YELLOW : T_FG(), sel ? T_SEL() : T_BG());
+  tft.setTextColor(sel ? (themeDark ? TFT_YELLOW : 0x000F) : T_FG(), sel ? T_SEL() : T_BG());
   tft.setCursor(6, ROW_Y + 5);
   tft.print(sel ? "> " : "  ");
   tft.print("Theme");
 
   // Show current value right-aligned
   const char* themeLabel = themeDark ? "Dark" : "Light";
-  tft.setTextColor(TFT_CYAN, sel ? T_SEL() : T_BG());
+  tft.setTextColor((themeDark ? TFT_CYAN  : 0x0055), sel ? T_SEL() : T_BG());
   tft.setCursor(SCREEN_W - (int)(strlen(themeLabel)*6) - 6, ROW_Y + 5);
   tft.print(themeLabel);
 

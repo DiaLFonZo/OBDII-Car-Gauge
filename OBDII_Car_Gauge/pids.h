@@ -51,6 +51,7 @@ static const PIDDef STANDARD_PIDS[] = {
   { "221940", "TRANS TEMP",   "deg.C",  -40,    120,   105,  "A-40",            false,  false,  10 },
   { "010F",   "INTAKE TEMP",  "deg.C",  -40,    120,   100,  "A-40",            false,  false,  10 },
   { "0104",   "ENG LOAD",     "%",        0,    100,    80,  "(A*100)/255",     false,  false,   0 },
+  { "010B",   "MAP",          "kPa",      0,    255,   200,  "A",               false,  false,   0 },
   { "010E",   "TIMING ADV",   "deg",    -64,     64,     0,  "(A/2)-64",        false,  false,   5 },
   { "0133",   "BARO PRESS",   "kPa",     50,    110,     0,  "A",               false,  false,  30 },
   { "0142",   "CTRL VOLT",    "V",        0,     16,    14,  "(A*256+B)/1000",  false,  false,  20 },

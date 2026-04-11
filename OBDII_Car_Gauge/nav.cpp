@@ -57,8 +57,7 @@ void handleNav(InputIntent intent, AppState &state) {
         break;
       case INTENT_BACK:
       case INTENT_MENU:
-      case INTENT_SELECT:
-        // All of these open the menu from gauge
+        // Triangle or dedicated menu button opens menu from gauge
         menuCursor = 0;
         state = STATE_MENU;
         break;
@@ -99,18 +98,28 @@ void handleNav(InputIntent intent, AppState &state) {
   }
 
   // ── MENU: PIDs ──────────────────────────────────────────────
+  // Virtual list: index 0 = Toggle All, index 1..PID_COUNT = PIDs
   if (state == STATE_MENU_PIDS) {
+    const int TOTAL = PID_COUNT + 1;
     switch (intent) {
       case INTENT_UP:
-        pidSelectorCursor = (pidSelectorCursor <= 0) ? PID_COUNT-1 : pidSelectorCursor-1;
+        pidSelectorCursor = (pidSelectorCursor <= 0) ? TOTAL-1 : pidSelectorCursor-1;
         ui_menuPIDs(pidSelectorCursor);
         break;
       case INTENT_DOWN:
-        pidSelectorCursor = (pidSelectorCursor >= PID_COUNT-1) ? 0 : pidSelectorCursor+1;
+        pidSelectorCursor = (pidSelectorCursor >= TOTAL-1) ? 0 : pidSelectorCursor+1;
         ui_menuPIDs(pidSelectorCursor);
         break;
       case INTENT_SELECT:
-        setPIDActive(pidSelectorCursor, !isPIDActive(pidSelectorCursor));
+        if (pidSelectorCursor == 0) {
+          // Toggle All / None
+          bool anyActive = false;
+          for (int i = 0; i < PID_COUNT; i++) if (isPIDActive(i)) { anyActive = true; break; }
+          for (int i = 0; i < PID_COUNT; i++) setPIDActive(i, !anyActive);
+          saveActivePIDs(); resetPollGroups(); resetGaugePage();
+        } else {
+          setPIDActive(pidSelectorCursor - 1, !isPIDActive(pidSelectorCursor - 1));
+        }
         ui_menuPIDs(pidSelectorCursor);
         break;
       case INTENT_BACK:
