@@ -3,6 +3,17 @@
 #include "pids.h"
 #include "input.h"
 
+PIDDef PIDS[MAX_PIDS];
+int    PID_COUNT = 0;
+
+void buildPIDList() {
+  PID_COUNT = 0;
+  for (int i = 0; i < STANDARD_PID_COUNT; i++)
+    PIDS[PID_COUNT++] = STANDARD_PIDS[i];
+  for (int i = 0; i < CUSTOM_PID_COUNT; i++)
+    PIDS[PID_COUNT++] = CUSTOM_PIDS[i];
+}
+
 static BLEUUID serviceUUID   ("FFF0");
 static BLEUUID charWriteUUID ("FFF2");
 static BLEUUID charNotifyUUID("FFF1");
@@ -88,8 +99,10 @@ void handleOBD(AppState &state) {
   }
 
   if (state == STATE_INIT_ELM) {
-    initELM(c);
-    state = STATE_GAUGE;
-    return;
+      buildPIDList();
+      initELM(c);
+      state = STATE_GAUGE;
+      return;
   }
+  
 }

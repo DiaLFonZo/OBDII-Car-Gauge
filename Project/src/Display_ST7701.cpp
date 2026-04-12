@@ -392,8 +392,11 @@ bool example_on_vsync_event(esp_lcd_panel_handle_t panel, const esp_lcd_rgb_pane
   return high_task_awoken == pdTRUE;
 }
 void LCD_Init() {
-  I2C_Init();        // Wire must be first
-  ST7701_Reset();    // now TCA9554 works
+  I2C_Init();
+  delay(120);
+  TCA9554PWR_Init(0x00);
+  Set_EXIO(EXIO_PIN8, Low);  // buzzer off
+  ST7701_Reset();
   ST7701_Init();
   Backlight_Init();
 }

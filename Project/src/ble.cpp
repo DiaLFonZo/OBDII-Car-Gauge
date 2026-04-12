@@ -85,7 +85,7 @@ void initBLE() {
 void startScan() {
   deviceCount   = 0;
   selectedIndex = 0;
-  scan->start(0, true);
+  scan->start(5, false);
 }
 
 void resumeScan() {
