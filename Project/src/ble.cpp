@@ -50,8 +50,8 @@ void forgetSavedDevice() {
 // Scan callback
 // ─────────────────────────────
 
-class ScanCallbacks : public NimBLEScanCallbacks {
-  void onResult(const NimBLEAdvertisedDevice* device) override {
+class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
+  void onResult(NimBLEAdvertisedDevice* device) override {
     String addr = device->getAddress().toString().c_str();
     for (int i = 0; i < deviceCount; i++) {
       if (deviceList[i].address == addr) {
@@ -79,7 +79,7 @@ void initBLE() {
   scan->setActiveScan(true);
   scan->setInterval(100);
   scan->setWindow(99);
-  scan->setScanCallbacks(new ScanCallbacks());
+  scan->setAdvertisedDeviceCallbacks(new ScanCallbacks());
 }
 
 void startScan() {

@@ -63,13 +63,13 @@ static const PIDDef STANDARD_PIDS[] = {
   // { "221XXX","EGT",       "deg.C", 0, 900, 700, "(A*256+B)/10-40", false, false, 1 },
 
 };
-static const int STANDARD_PID_COUNT = sizeof(STANDARD_PIDS) / sizeof(STANDARD_PIDS[0]);
+constexpr  int STANDARD_PID_COUNT = sizeof(STANDARD_PIDS) / sizeof(STANDARD_PIDS[0]);
 
 // ── CUSTOM PIDs — confirmed LZ0 addresses go here ────────────────
-static const PIDDef CUSTOM_PIDS[] = {
+constexpr PIDDef CUSTOM_PIDS[] = {
   // { "221A2F", "DEF LEVEL", "%", 0, 100, 15, "A/2.55", false, false, 30 },
 };
-static const int CUSTOM_PID_COUNT = sizeof(CUSTOM_PIDS) / sizeof(CUSTOM_PIDS[0]);
+constexpr int CUSTOM_PID_COUNT = sizeof(CUSTOM_PIDS) / sizeof(CUSTOM_PIDS[0]);
 
 // ── COMBINED LIST — built at runtime in obd.cpp ──────────────────
 #define MAX_PIDS 64

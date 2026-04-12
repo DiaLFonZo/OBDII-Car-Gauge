@@ -5,8 +5,8 @@
 #include "ble.h"
 
 struct OBDValues {
-  float values[PID_COUNT];
-  bool  hasData[PID_COUNT];
+  float values[MAX_PIDS];
+  bool  hasData[MAX_PIDS];
 };
 
 OBDValues& getOBDValues();
