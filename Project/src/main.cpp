@@ -114,12 +114,11 @@ static void buildGaugeScreen(int pidIndex) {
   lv_obj_t *scr = lv_scr_act();
   lv_obj_clean(scr);
 
-  // Black background
   lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
 
-  // Arc — red, sweeps 240 degrees
+  // Arc — fills outer edge, very thick
   gaugeArc = lv_arc_create(scr);
-  lv_obj_set_size(gaugeArc, 400, 400);
+  lv_obj_set_size(gaugeArc, 460, 460);
   lv_obj_center(gaugeArc);
   lv_arc_set_rotation(gaugeArc, 150);
   lv_arc_set_bg_angles(gaugeArc, 0, 240);
@@ -127,8 +126,8 @@ static void buildGaugeScreen(int pidIndex) {
   lv_arc_set_range(gaugeArc, 0, 100);
   lv_obj_set_style_arc_color(gaugeArc, lv_color_make(60, 0, 0), LV_PART_MAIN);
   lv_obj_set_style_arc_color(gaugeArc, lv_color_make(255, 0, 0), LV_PART_INDICATOR);
-  lv_obj_set_style_arc_width(gaugeArc, 40, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(gaugeArc, 40, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_width(gaugeArc, 80, LV_PART_MAIN);
+  lv_obj_set_style_arc_width(gaugeArc, 80, LV_PART_INDICATOR);
   lv_obj_remove_style(gaugeArc, NULL, LV_PART_KNOB);
   lv_obj_clear_flag(gaugeArc, LV_OBJ_FLAG_CLICKABLE);
 
@@ -137,14 +136,14 @@ static void buildGaugeScreen(int pidIndex) {
   lv_label_set_text(gaugeValue, "---");
   lv_obj_set_style_text_font(gaugeValue, &lv_font_montserrat_48, 0);
   lv_obj_set_style_text_color(gaugeValue, lv_color_make(255, 0, 0), 0);
-  lv_obj_align(gaugeValue, LV_ALIGN_CENTER, 0, -30);
+  lv_obj_align(gaugeValue, LV_ALIGN_CENTER, 0, -20);
 
   // Unit label
   gaugeUnit = lv_label_create(scr);
   lv_label_set_text(gaugeUnit, pid.unit);
   lv_obj_set_style_text_font(gaugeUnit, &lv_font_montserrat_20, 0);
-  lv_obj_set_style_text_color(gaugeUnit, lv_color_make(255, 0, 0), 0);
-  lv_obj_align(gaugeUnit, LV_ALIGN_CENTER, 0, 30);
+  lv_obj_set_style_text_color(gaugeUnit, lv_color_make(200, 0, 0), 0);
+  lv_obj_align(gaugeUnit, LV_ALIGN_CENTER, 0, 40);
 
   // PID name
   gaugeName = lv_label_create(scr);
@@ -170,12 +169,15 @@ static void updateGauge(int pidIndex) {
   if (!v.hasData[pidIndex]) return;
 
   float val = v.values[pidIndex];
+
+  static float smoothVal = 0;
+  smoothVal = smoothVal * 0.6f + val * 0.4f;
+
   char buf[32];
-  snprintf(buf, sizeof(buf), "%.0f", val);
+  snprintf(buf, sizeof(buf), "%.0f", smoothVal);
   lv_label_set_text(gaugeValue, buf);
 
-  // Map value to arc 0-100
-  float pct = (val - pid.valMin) / (pid.valMax - pid.valMin) * 100.0f;
+  float pct = (smoothVal - pid.valMin) / (pid.valMax - pid.valMin) * 100.0f;
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
   lv_arc_set_value(gaugeArc, (int)pct);
@@ -219,7 +221,7 @@ void setup() {
 
 void loop() {
   lv_timer_handler();
-  delay(5);
+  // delay(5);
 
   // Handle connecting
   static bool connectStarted = false;
