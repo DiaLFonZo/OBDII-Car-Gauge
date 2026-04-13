@@ -4,27 +4,37 @@
 #include "ble.h"
 #include "obd.h"
 #include <lvgl.h>
+#include <Preferences.h>
 
+// ── Shared state ──────────────────────────────────────────────
+volatile AppState appState = STATE_BOOT;
 extern int gaugePage;
 
-AppState appState = STATE_BOOT;
+// ── LVGL mutex ────────────────────────────────────────────────
+static SemaphoreHandle_t lvgl_mutex = NULL;
+#define LVGL_LOCK()   xSemaphoreTake(lvgl_mutex, portMAX_DELAY)
+#define LVGL_UNLOCK() xSemaphoreGive(lvgl_mutex)
 
-// ── LVGL flush callback ──────────────────────────────────────────
+// ── LVGL buffers ──────────────────────────────────────────────
+static lv_color_t *lvgl_buf1 = nullptr;
+static lv_color_t *lvgl_buf2 = nullptr;
+
+// ── LVGL flush ────────────────────────────────────────────────
 static void lvgl_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
   LCD_addWindow(area->x1, area->y1, area->x2, area->y2, (uint8_t*)color_p);
   lv_disp_flush_ready(drv);
 }
 
-// ── LVGL tick ────────────────────────────────────────────────────
-static void lvgl_tick(void *arg) { lv_tick_inc(5); }
+// ── LVGL tick ─────────────────────────────────────────────────
+static void lvgl_tick(void*) { lv_tick_inc(5); }
 
-// ── LVGL touch input ─────────────────────────────────────────────
+// ── LVGL touch ────────────────────────────────────────────────
 static void lvgl_touch_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
   uint16_t x, y, strength;
-  uint8_t touchCount;
+  uint8_t  cnt;
   Touch_Read_Data();
-  Touch_Get_XY(&x, &y, &strength, &touchCount, 1);
-  if (touchCount > 0) {
+  Touch_Get_XY(&x, &y, &strength, &cnt, 1);
+  if (cnt > 0) {
     data->point.x = x;
     data->point.y = y;
     data->state   = LV_INDEV_STATE_PR;
@@ -33,166 +43,258 @@ static void lvgl_touch_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
   }
 }
 
-// ── Globals ──────────────────────────────────────────────────────
-static int lastCount  = -1;
-static int listOffset = 0;
-static AppState lastState = STATE_BOOT;
-#define VISIBLE_ITEMS 4
+// ── UI state ──────────────────────────────────────────────────
+static volatile AppState lastUIState = STATE_BOOT;
+static lv_obj_t *rawLabels[MAX_PIDS] = {nullptr};
+static lv_obj_t *rawScreen           = nullptr;
 
-// ── Gauge screen objects ──────────────────────────────────────────
-static lv_obj_t *gaugeArc   = nullptr;
-static lv_obj_t *gaugeValue = nullptr;
-static lv_obj_t *gaugeUnit  = nullptr;
-static lv_obj_t *gaugeName  = nullptr;
-static int        lastGaugePage = -1;
-
-// ── Device button callback ────────────────────────────────────────
+// ── Device button callback ────────────────────────────────────
 static void device_btn_cb(lv_event_t *e) {
   int idx = (int)(intptr_t)lv_event_get_user_data(e);
   setSelectedIndex(idx);
   appState = STATE_CONNECTING;
 }
 
-// ── Rebuild scan list UI ──────────────────────────────────────────
-static void rebuildScanList(int count) {
+// ── showStatus ────────────────────────────────────────────────
+static void showStatus(const char* msg) {
+  LVGL_LOCK();
   lv_obj_t *scr = lv_scr_act();
   lv_obj_clean(scr);
+  rawScreen = nullptr;
+  memset(rawLabels, 0, sizeof(rawLabels));
+  lv_obj_t *lbl = lv_label_create(scr);
+  lv_label_set_text(lbl, msg);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+  lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+  LVGL_UNLOCK();
+}
+
+// ── showDeviceGrid ────────────────────────────────────────────
+static void showDeviceGrid() {
+  int count = getDeviceCount();
+  LVGL_LOCK();
+  lv_obj_t *scr = lv_scr_act();
+  lv_obj_clean(scr);
+  rawScreen = nullptr;
 
   lv_obj_t *title = lv_label_create(scr);
   lv_label_set_text(title, "Select OBD2 Adapter");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 60);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 55);
 
-  lv_obj_t *btn_up = lv_btn_create(scr);
-  lv_obj_set_size(btn_up, 80, 40);
-  lv_obj_align(btn_up, LV_ALIGN_TOP_MID, 0, 110);
-  lv_obj_t *lbl_up = lv_label_create(btn_up);
-  lv_label_set_text(lbl_up, LV_SYMBOL_UP);
-  lv_obj_center(lbl_up);
-  lv_obj_add_event_cb(btn_up, [](lv_event_t *e) {
-    if (listOffset > 0) { listOffset--; rebuildScanList(getDeviceCount()); }
-  }, LV_EVENT_CLICKED, nullptr);
-
-  for (int i = 0; i < VISIBLE_ITEMS; i++) {
-    int idx = listOffset + i;
-    if (idx >= count) break;
-    BLEDeviceEntry *dev = getDevice(idx);
-    lv_obj_t *btn = lv_btn_create(scr);
-    lv_obj_set_size(btn, 340, 40);
-    lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, 170 + i * 62);
-    lv_obj_t *lbl = lv_label_create(btn);
-    lv_label_set_text(lbl, dev->name.c_str());
-    lv_obj_center(lbl);
-    lv_obj_add_event_cb(btn, device_btn_cb, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
-  }
-
-  lv_obj_t *btn_dn = lv_btn_create(scr);
-  lv_obj_set_size(btn_dn, 80, 40);
-  lv_obj_align(btn_dn, LV_ALIGN_BOTTOM_MID, 0, -20);
-  lv_obj_t *lbl_dn = lv_label_create(btn_dn);
-  lv_label_set_text(lbl_dn, LV_SYMBOL_DOWN);
-  lv_obj_center(lbl_dn);
-  lv_obj_add_event_cb(btn_dn, [](lv_event_t *e) {
-    if (listOffset + VISIBLE_ITEMS < getDeviceCount()) { listOffset++; rebuildScanList(getDeviceCount()); }
-  }, LV_EVENT_CLICKED, nullptr);
-}
-
-// ── Show status screen ────────────────────────────────────────────
-static void showStatus(const char* msg) {
-  lv_obj_t *scr = lv_scr_act();
-  lv_obj_clean(scr);
-  gaugeArc = gaugeValue = gaugeUnit = gaugeName = nullptr;
-  lv_obj_t *label = lv_label_create(scr);
-  lv_label_set_text(label, msg);
-  lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
-  lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
-}
-
-// ── Build gauge screen ────────────────────────────────────────────
-static void buildGaugeScreen(int pidIndex) {
-  const PIDDef &pid = PIDS[pidIndex];
-  lv_obj_t *scr = lv_scr_act();
-  lv_obj_clean(scr);
-
-  lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
-
-  // Arc — fills outer edge, very thick
-  gaugeArc = lv_arc_create(scr);
-  lv_obj_set_size(gaugeArc, 460, 460);
-  lv_obj_center(gaugeArc);
-  lv_arc_set_rotation(gaugeArc, 150);
-  lv_arc_set_bg_angles(gaugeArc, 0, 240);
-  lv_arc_set_value(gaugeArc, 0);
-  lv_arc_set_range(gaugeArc, 0, 100);
-  lv_obj_set_style_arc_color(gaugeArc, lv_color_make(60, 0, 0), LV_PART_MAIN);
-  lv_obj_set_style_arc_color(gaugeArc, lv_color_make(255, 0, 0), LV_PART_INDICATOR);
-  lv_obj_set_style_arc_width(gaugeArc, 80, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(gaugeArc, 80, LV_PART_INDICATOR);
-  lv_obj_remove_style(gaugeArc, NULL, LV_PART_KNOB);
-  lv_obj_clear_flag(gaugeArc, LV_OBJ_FLAG_CLICKABLE);
-
-  // Large value label
-  gaugeValue = lv_label_create(scr);
-  lv_label_set_text(gaugeValue, "---");
-  lv_obj_set_style_text_font(gaugeValue, &lv_font_montserrat_48, 0);
-  lv_obj_set_style_text_color(gaugeValue, lv_color_make(255, 0, 0), 0);
-  lv_obj_align(gaugeValue, LV_ALIGN_CENTER, 0, -20);
-
-  // Unit label
-  gaugeUnit = lv_label_create(scr);
-  lv_label_set_text(gaugeUnit, pid.unit);
-  lv_obj_set_style_text_font(gaugeUnit, &lv_font_montserrat_20, 0);
-  lv_obj_set_style_text_color(gaugeUnit, lv_color_make(200, 0, 0), 0);
-  lv_obj_align(gaugeUnit, LV_ALIGN_CENTER, 0, 40);
-
-  // PID name
-  gaugeName = lv_label_create(scr);
-  lv_label_set_text(gaugeName, pid.name);
-  lv_obj_set_style_text_font(gaugeName, &lv_font_montserrat_20, 0);
-  lv_obj_set_style_text_color(gaugeName, lv_color_white(), 0);
-  lv_obj_align(gaugeName, LV_ALIGN_CENTER, 0, 80);
-
-  lastGaugePage = pidIndex;
-}
-
-// ── Update gauge values ───────────────────────────────────────────
-static void updateGauge(int pidIndex) {
-  if (!gaugeArc || !gaugeValue) return;
-  if (pidIndex != lastGaugePage) {
-    buildGaugeScreen(pidIndex);
+  if (count == 0) {
+    lv_obj_t *none = lv_label_create(scr);
+    lv_label_set_text(none, "No devices found.");
+    lv_obj_set_style_text_font(none, &lv_font_montserrat_20, 0);
+    lv_obj_align(none, LV_ALIGN_CENTER, 0, 0);
+    LVGL_UNLOCK();
     return;
   }
 
-  const PIDDef &pid = PIDS[pidIndex];
-  OBDValues &v = getOBDValues();
+  int cols   = 3;
+  int btnW   = 120;
+  int btnH   = 50;
+  int padX   = 8;
+  int padY   = 8;
+  int startY = 110;
+  int startX = (480 - (cols * btnW + (cols-1) * padX)) / 2;
 
-  if (!v.hasData[pidIndex]) return;
+  for (int i = 0; i < count && i < MAX_DEVICES; i++) {
+    BLEDeviceEntry *dev = getDevice(i);
+    int col = i % cols;
+    int row = i / cols;
+    int x   = startX + col * (btnW + padX);
+    int y   = startY + row * (btnH + padY);
 
-  float val = v.values[pidIndex];
+    lv_obj_t *btn = lv_btn_create(scr);
+    lv_obj_set_size(btn, btnW, btnH);
+    lv_obj_set_pos(btn, x, y);
 
-  static float smoothVal = 0;
-  smoothVal = smoothVal * 0.6f + val * 0.4f;
+    lv_obj_t *lbl = lv_label_create(btn);
+    String txt = (dev->name.length() > 0 && !dev->name.startsWith(dev->address.substring(0,8)))
+                 ? dev->name : dev->address.substring(0, 11);
+    lv_label_set_text(lbl, txt.c_str());
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP);
+    lv_obj_set_width(lbl, btnW - 8);
+    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(lbl);
+    lv_obj_add_event_cb(btn, device_btn_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+  }
 
-  char buf[32];
-  snprintf(buf, sizeof(buf), "%.0f", smoothVal);
-  lv_label_set_text(gaugeValue, buf);
+  // Rescan button
+  lv_obj_t *rescan = lv_btn_create(scr);
+  lv_obj_set_size(rescan, 160, 45);
+  lv_obj_align(rescan, LV_ALIGN_BOTTOM_MID, 0, -30);
+  lv_obj_t *rlbl = lv_label_create(rescan);
+  lv_label_set_text(rlbl, LV_SYMBOL_REFRESH " Rescan");
+  lv_obj_center(rlbl);
+  lv_obj_add_event_cb(rescan, [](lv_event_t*) {
+    appState = STATE_SCANNING;
+  }, LV_EVENT_CLICKED, nullptr);
 
-  float pct = (smoothVal - pid.valMin) / (pid.valMax - pid.valMin) * 100.0f;
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
-  lv_arc_set_value(gaugeArc, (int)pct);
+  LVGL_UNLOCK();
 }
 
+// ── buildRawScreen ────────────────────────────────────────────
+static void buildRawScreen() {
+  LVGL_LOCK();
+  lv_obj_t *scr = lv_scr_act();
+  lv_obj_clean(scr);
+  rawScreen = scr;
+  memset(rawLabels, 0, sizeof(rawLabels));
+
+  lv_obj_t *title = lv_label_create(scr);
+  lv_label_set_text(title, "LIVE OBD2 VALUES");
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(title, lv_color_make(180, 180, 180), 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 50);
+
+  int cols   = 2;
+  int rowH   = 30;
+  int colW   = 220;
+  int startX = 20;
+  int startY = 80;
+
+  for (int i = 0; i < PID_COUNT; i++) {
+    int col = i % cols;
+    int row = i / cols;
+    int x   = startX + col * colW;
+    int y   = startY + row * rowH;
+    if (y > 440) break;
+
+    lv_obj_t *name = lv_label_create(scr);
+    lv_label_set_text(name, PIDS[i].name);
+    lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(name, lv_color_make(150, 150, 150), 0);
+    lv_obj_set_pos(name, x, y);
+
+    rawLabels[i] = lv_label_create(scr);
+    lv_label_set_text(rawLabels[i], "---");
+    lv_obj_set_style_text_font(rawLabels[i], &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(rawLabels[i], lv_color_white(), 0);
+    lv_obj_set_pos(rawLabels[i], x + 105, y);
+  }
+
+  lv_obj_t *disc = lv_btn_create(scr);
+  lv_obj_set_size(disc, 130, 40);
+  lv_obj_align(disc, LV_ALIGN_BOTTOM_MID, 0, -20);
+  lv_obj_t *dlbl = lv_label_create(disc);
+  lv_label_set_text(dlbl, LV_SYMBOL_CLOSE " Disconnect");
+  lv_obj_set_style_text_font(dlbl, &lv_font_montserrat_14, 0);
+  lv_obj_center(dlbl);
+  lv_obj_add_event_cb(disc, [](lv_event_t*) {
+    NimBLEClient *c = getBLEClient();
+    if (c) c->disconnect();
+    appState = STATE_SCANNING;
+  }, LV_EVENT_CLICKED, nullptr);
+
+  LVGL_UNLOCK();
+}
+
+// ── updateRawValues ───────────────────────────────────────────
+static void updateRawValues() {
+  if (!rawScreen) return;
+  OBDValues &v = getOBDValues();
+  LVGL_LOCK();
+  for (int i = 0; i < PID_COUNT; i++) {
+    if (!rawLabels[i] || !v.hasData[i]) continue;
+    char buf[20];
+    if (PIDS[i].isBoolean)
+      snprintf(buf, sizeof(buf), "%s", v.values[i] > 0.5f ? "ON" : "OFF");
+    else
+      snprintf(buf, sizeof(buf), "%.1f %s", v.values[i], PIDS[i].unit);
+    lv_label_set_text(rawLabels[i], buf);
+    lv_obj_set_style_text_color(rawLabels[i],
+      (PIDS[i].warn > 0 && v.values[i] >= PIDS[i].warn)
+        ? lv_color_make(255, 60, 60)
+        : lv_color_white(), 0);
+  }
+  LVGL_UNLOCK();
+}
+
+static void ble_obd_task(void*) {
+  static bool     scanDone      = false;
+  static uint32_t scanStartTime = 0;
+  static AppState taskLastState = STATE_BOOT;
+
+  while(1) {
+    AppState state = appState;
+
+    // ── Scanning ──────────────────────────────────────────────
+    if (state == STATE_SCANNING) {
+      if (taskLastState != STATE_SCANNING) {
+        taskLastState = STATE_SCANNING;
+        scanDone      = false;
+        scanStartTime = millis();
+        startScan();
+      }
+      if (!scanDone && millis() - scanStartTime >= 3000) {
+        scanDone = true;
+        stopScan();
+        Preferences prefs;
+        prefs.begin("obd", true);
+        String savedMac = prefs.getString("mac", "");
+        prefs.end();
+        bool found = false;
+        if (savedMac != "") {
+          for (int i = 0; i < getDeviceCount(); i++) {
+            if (getDevice(i)->address == savedMac) {
+              setSelectedIndex(i);
+              found = true;
+              break;
+            }
+          }
+        }
+        if (found) {
+          appState = STATE_CONNECTING;
+        }
+        // if not found, stay in STATE_SCANNING, UI will show grid
+      }
+    }
+
+    // ── Connecting ────────────────────────────────────────────
+    else if (state == STATE_CONNECTING) {
+      if (taskLastState != STATE_CONNECTING) {
+        taskLastState = STATE_CONNECTING;
+        AppState s = appState;
+        connectToSelectedDevice(s);
+        appState = s;
+      }
+    }
+
+    // ── OBD ───────────────────────────────────────────────────
+    else if (state == STATE_INIT_ELM || state == STATE_GAUGE) {
+      taskLastState = state;
+      AppState s = appState;
+      handleOBD(s);
+      appState = s;
+    }
+
+    // ── Reset task state when returning to scanning ───────────
+    if (state != STATE_SCANNING && appState == STATE_SCANNING) {
+      taskLastState = STATE_BOOT;  // forces scan restart
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+// ── setup ─────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
   delay(500);
   LCD_Init();
   Touch_Init();
 
+  lvgl_mutex = xSemaphoreCreateMutex();
   lv_init();
-  static lv_color_t buf[480 * 10];
+
+  lvgl_buf1 = (lv_color_t*)heap_caps_malloc(480 * 40 * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+  lvgl_buf2 = (lv_color_t*)heap_caps_malloc(480 * 40 * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+
   static lv_disp_draw_buf_t draw_buf;
-  lv_disp_draw_buf_init(&draw_buf, buf, NULL, 480 * 10);
+  lv_disp_draw_buf_init(&draw_buf, lvgl_buf1, lvgl_buf2, 480 * 40);
 
   static lv_disp_drv_t disp_drv;
   lv_disp_drv_init(&disp_drv);
@@ -202,67 +304,74 @@ void setup() {
   disp_drv.draw_buf = &draw_buf;
   lv_disp_drv_register(&disp_drv);
 
+  lv_theme_t *th = lv_theme_default_init(NULL,
+    lv_palette_main(LV_PALETTE_RED),
+    lv_palette_main(LV_PALETTE_GREY),
+    true, &lv_font_montserrat_14);
+  lv_disp_set_theme(NULL, th);
+
   static lv_indev_drv_t indev_drv;
   lv_indev_drv_init(&indev_drv);
   indev_drv.type    = LV_INDEV_TYPE_POINTER;
   indev_drv.read_cb = lvgl_touch_read;
   lv_indev_drv_register(&indev_drv);
 
-  const esp_timer_create_args_t timer_args = { .callback = lvgl_tick, .name = "lvgl" };
+  const esp_timer_create_args_t ta = { .callback = lvgl_tick, .name = "lvgl" };
   esp_timer_handle_t timer;
-  esp_timer_create(&timer_args, &timer);
+  esp_timer_create(&ta, &timer);
   esp_timer_start_periodic(timer, 5000);
 
-  showStatus("Scanning...");
   initBLE();
-  startScan();
+  showStatus("Scanning...");
   appState = STATE_SCANNING;
+
+  // BLE/OBD on core 1
+  xTaskCreatePinnedToCore(ble_obd_task, "ble_obd", 8192, NULL, 3, NULL, 1);
 }
 
+// ── loop — UI only, core 0 ────────────────────────────────────
 void loop() {
+  LVGL_LOCK();
   lv_timer_handler();
-  // delay(5);
+  LVGL_UNLOCK();
 
-  // Handle connecting
-  static bool connectStarted = false;
-  if (appState == STATE_CONNECTING && !connectStarted) {
-    connectStarted = true;
-    showStatus("Connecting...");
-    lv_timer_handler();
-    connectToSelectedDevice(appState);
-    connectStarted = false;
+  AppState state = appState;
+
+  // UI reacts to state changes
+  if (state != lastUIState) {
+    lastUIState = state;
+    if (state == STATE_SCANNING)
+      showStatus("Scanning...");
+    else if (state == STATE_CONNECTING)
+      showStatus("Connecting...");
+    else if (state == STATE_INIT_ELM)
+      showStatus("Initializing...");
+    else if (state == STATE_GAUGE)
+      buildRawScreen();
   }
 
-  // Handle OBD
-  handleOBD(appState);
-
-  // Update scan list
-  if (appState == STATE_SCANNING) {
+  // Show device grid once scan is done and still in scanning state
+  static bool gridShown = false;
+  if (state == STATE_SCANNING) {
+    // Check if scan has completed (deviceCount stable for 500ms)
+    static int     lastCount    = -1;
+    static uint32_t stableStart = 0;
     int count = getDeviceCount();
     if (count != lastCount) {
-      lastCount = count;
-      listOffset = 0;
-      rebuildScanList(count);
+      lastCount    = count;
+      stableStart  = millis();
+      gridShown    = false;
     }
+    if (!gridShown && count > 0 && millis() - stableStart > 500) {
+      gridShown = true;
+      showDeviceGrid();
+    }
+  } else {
+    gridShown = false;
   }
 
-  // Show status on state change
-  if (appState != lastState) {
-    lastState = appState;
-    if (appState == STATE_CONNECTING)
-      showStatus("Connecting...");
-    else if (appState == STATE_INIT_ELM)
-      showStatus("Initializing...");
-    else if (appState == STATE_GAUGE) {
-      buildGaugeScreen(0);  // start with first PID
-    } else if (appState == STATE_SCANNING) {
-      lastCount = -1;
-      listOffset = 0;
-    }
-  }
+  if (state == STATE_GAUGE)
+    updateRawValues();
 
-  // Update gauge
-  if (appState == STATE_GAUGE) {
-    updateGauge(gaugePage);
-  }
+  vTaskDelay(pdMS_TO_TICKS(5));
 }

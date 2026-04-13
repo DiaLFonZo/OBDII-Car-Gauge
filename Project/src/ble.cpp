@@ -85,7 +85,12 @@ void initBLE() {
 void startScan() {
   deviceCount   = 0;
   selectedIndex = 0;
-  scan->start(5, false);
+  scan->clearResults();
+  scan->start(0, false);  // 0 = indefinite, truly non-blocking
+}
+
+void stopScan() {
+  scan->stop();
 }
 
 void resumeScan() {
@@ -108,6 +113,7 @@ static bool connectByAddress(const String& address, AppState &state) {
   NimBLEAddress bleAddr(std::string(address.c_str()), BLE_ADDR_PUBLIC);
   client = NimBLEDevice::createClient();
 
+  client->setConnectTimeout(10);
   if (!client->connect(bleAddr)) {
     NimBLEDevice::deleteClient(client);
     client = nullptr;

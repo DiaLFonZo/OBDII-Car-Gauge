@@ -4,8 +4,6 @@
 #include "input.h"
 #include <Preferences.h>
 
-int gaugePage = 0;
-
 static BLEUUID serviceUUID   ("FFF0");
 static BLEUUID charWriteUUID ("FFF2");
 static BLEUUID charNotifyUUID("FFF1");
@@ -28,42 +26,39 @@ void buildPIDList() {
 // ── OBD values ────────────────────────────────────────────────
 static OBDValues obdValues;
 OBDValues& getOBDValues() { return obdValues; }
-
-void resetGaugePage() { }
+int gaugePage = 0;
+void resetGaugePage() { gaugePage = 0; }
 
 void resetOBD() {
-  pWriteChar    = nullptr;
-  pNotifyChar   = nullptr;
-  for (int i = 0; i < PID_COUNT; i++) {
+  pWriteChar  = nullptr;
+  pNotifyChar = nullptr;
+  for (int i = 0; i < MAX_PIDS; i++) {
     obdValues.values[i]  = 0.0;
     obdValues.hasData[i] = false;
   }
 }
 
 // ── Prompt-based poll state ───────────────────────────────────
-static volatile bool prompt        = false;
-static String        responseBuffer = "";
-static int           pidPollIndex  = 0;
-static bool          pidSent       = false;
+static volatile bool prompt       = false;
+static String        respBuf      = "";
+static int           pollIndex    = 0;
+static bool          pidSent      = false;
 static uint8_t       skipCounters[MAX_PIDS] = {0};
 
 // ── Notify callback ───────────────────────────────────────────
 static void notifyCallback(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
   for (size_t i = 0; i < len; i++) {
     char c = (char)data[i];
-    if (c == '>') {
-      prompt = true;
-    } else {
-      responseBuffer += c;
-    }
+    if (c == '>') prompt = true;
+    else          respBuf += c;
   }
 }
 
 // ── Send command ──────────────────────────────────────────────
 static void sendCommand(const char* cmd) {
   if (!pWriteChar) return;
-  responseBuffer = "";
-  prompt         = false;
+  respBuf = "";
+  prompt  = false;
   String s = String(cmd) + "\r";
   pWriteChar->writeValue((uint8_t*)s.c_str(), s.length(), false);
 }
@@ -79,18 +74,14 @@ static bool sendAndWait(const char* cmd, unsigned long timeoutMs = 1500) {
 static void advancePollIndex() {
   if (PID_COUNT == 0) return;
   for (int n = 0; n < PID_COUNT; n++) {
-    pidPollIndex = (pidPollIndex + 1) % PID_COUNT;
-    if (skipCounters[pidPollIndex] > 0) {
-      skipCounters[pidPollIndex]--;
+    pollIndex = (pollIndex + 1) % PID_COUNT;
+    if (skipCounters[pollIndex] > 0) {
+      skipCounters[pollIndex]--;
       continue;
     }
-    skipCounters[pidPollIndex] = PIDS[pidPollIndex].skip;
+    skipCounters[pollIndex] = PIDS[pollIndex].skip;
     return;
   }
-}
-
-static void sendCurrentPID() {
-  sendCommand(PIDS[pidPollIndex].cmd);
 }
 
 // ── Parse PID response ────────────────────────────────────────
@@ -98,7 +89,6 @@ static void parsePIDResponse(int pidIndex, const String& response) {
   const PIDDef& p = PIDS[pidIndex];
   String r = response;
   r.trim(); r.replace(">", ""); r.replace(" ", ""); r.toUpperCase();
-
   if (r.indexOf("NODATA") >= 0 || r.indexOf("ERROR") >= 0) return;
 
   String cmdUpper = String(p.cmd); cmdUpper.toUpperCase();
@@ -130,20 +120,19 @@ static void parsePIDResponse(int pidIndex, const String& response) {
 
   float val = 0.0;
   String f = String(p.formula);
-  float fa = (float)A, fb = (float)B, fc = (float)C;
+  float fa = A, fb = B, fc = C;
 
-  if      (f == "A")                 val = fa;
-  else if (f == "B")                 val = fb;
-  else if (f == "A-40")              val = fa - 40.0f;
-  else if (f == "(A*256+B)/4")       val = ((fa*256.0f)+fb)/4.0f;
-  else if (f == "(A*256+B)/10-40")   val = ((fa*256.0f)+fb)/10.0f-40.0f;
-  else if (f == "(A*256+B)/20")      val = ((fa*256.0f)+fb)/20.0f;
-  else if (f == "(A*256+B)/1000")    val = ((fa*256.0f)+fb)/1000.0f;
-  else if (f == "(A/2)-64")          val = fa/2.0f-64.0f;
-  else if (f == "(A*100)/255")       val = (fa*100.0f)/255.0f;
-  else if (f == "(100/255)*C")       val = (100.0f/255.0f)*fc;
-  else if (f == "B-2")               val = ((B-2)!=0)?1.0f:0.0f;
-  else                               val = fa;
+  if      (f == "A")                val = fa;
+  else if (f == "A-40")             val = fa - 40.0f;
+  else if (f == "(A*256+B)/4")      val = ((fa*256)+fb)/4.0f;
+  else if (f == "(A*256+B)/10-40")  val = ((fa*256)+fb)/10.0f - 40.0f;
+  else if (f == "(A*256+B)/20")     val = ((fa*256)+fb)/20.0f;
+  else if (f == "(A*256+B)/1000")   val = ((fa*256)+fb)/1000.0f;
+  else if (f == "(A/2)-64")         val = fa/2.0f - 64.0f;
+  else if (f == "(A*100)/255")      val = (fa*100.0f)/255.0f;
+  else if (f == "(100/255)*C")      val = (100.0f/255.0f)*fc;
+  else if (f == "B-2")              val = ((B-2)!=0) ? 1.0f : 0.0f;
+  else                              val = fa;
 
   obdValues.values[pidIndex]  = val;
   obdValues.hasData[pidIndex] = true;
@@ -175,48 +164,45 @@ static bool initELM(NimBLEClient* c) {
 }
 
 // ── handleOBD ─────────────────────────────────────────────────
-extern int gaugePage;
-
 void handleOBD(AppState &state) {
   if (state != STATE_INIT_ELM && state != STATE_GAUGE) return;
 
   NimBLEClient* c = getBLEClient();
   if (!c || !c->isConnected()) {
     resetOBD();
-    resumeScan();
     state = STATE_SCANNING;
     return;
   }
 
   if (state == STATE_INIT_ELM) {
     buildPIDList();
-    pidPollIndex = 0;
-    pidSent      = false;
-    prompt       = false;
-    responseBuffer = "";
+    pollIndex = 0;
+    pidSent   = false;
+    prompt    = false;
+    respBuf   = "";
     memset(skipCounters, 0, sizeof(skipCounters));
     initELM(c);
-    responseBuffer = "";
-    prompt         = false;
-    pidSent        = false;
-    state = STATE_GAUGE;
+    prompt  = false;
+    respBuf = "";
+    pidSent = false;
+    state   = STATE_GAUGE;
     return;
   }
 
-  // ── Prompt-based polling ───────────────────────────────────
+  // ── Prompt-based polling ──────────────────────────────────
   if (prompt) {
     prompt  = false;
     pidSent = false;
-    parsePIDResponse(pidPollIndex, responseBuffer);
-    responseBuffer = "";
+    parsePIDResponse(pollIndex, respBuf);
+    respBuf = "";
     advancePollIndex();
-    sendCurrentPID();
+    sendCommand(PIDS[pollIndex].cmd);
     pidSent = true;
     return;
   }
 
   if (!pidSent) {
-    sendCurrentPID();
+    sendCommand(PIDS[pollIndex].cmd);
     pidSent = true;
   }
 }

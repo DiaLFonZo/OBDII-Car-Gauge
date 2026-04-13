@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 
-#define MAX_DEVICES 8
+#define MAX_DEVICES 15
 
 enum AppState {
   STATE_BOOT,
@@ -21,6 +21,7 @@ struct BLEDeviceEntry {
 void            initBLE();
 void            startScan();
 void            resumeScan();
+void            stopScan();
 void            handleBLE(AppState &state);
 void            connectToSelectedDevice(AppState &state);
 bool            tryAutoConnect(AppState &state);
