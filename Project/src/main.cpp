@@ -119,7 +119,7 @@ static void buildGaugeScreen(int pidIndex) {
 
   // Arc — red, sweeps 240 degrees
   gaugeArc = lv_arc_create(scr);
-  lv_obj_set_size(gaugeArc, 420, 420);
+  lv_obj_set_size(gaugeArc, 400, 400);
   lv_obj_center(gaugeArc);
   lv_arc_set_rotation(gaugeArc, 150);
   lv_arc_set_bg_angles(gaugeArc, 0, 240);
@@ -127,8 +127,8 @@ static void buildGaugeScreen(int pidIndex) {
   lv_arc_set_range(gaugeArc, 0, 100);
   lv_obj_set_style_arc_color(gaugeArc, lv_color_make(60, 0, 0), LV_PART_MAIN);
   lv_obj_set_style_arc_color(gaugeArc, lv_color_make(255, 0, 0), LV_PART_INDICATOR);
-  lv_obj_set_style_arc_width(gaugeArc, 25, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(gaugeArc, 25, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_width(gaugeArc, 40, LV_PART_MAIN);
+  lv_obj_set_style_arc_width(gaugeArc, 40, LV_PART_INDICATOR);
   lv_obj_remove_style(gaugeArc, NULL, LV_PART_KNOB);
   lv_obj_clear_flag(gaugeArc, LV_OBJ_FLAG_CLICKABLE);
 
@@ -137,21 +137,21 @@ static void buildGaugeScreen(int pidIndex) {
   lv_label_set_text(gaugeValue, "---");
   lv_obj_set_style_text_font(gaugeValue, &lv_font_montserrat_48, 0);
   lv_obj_set_style_text_color(gaugeValue, lv_color_make(255, 0, 0), 0);
-  lv_obj_align(gaugeValue, LV_ALIGN_CENTER, 0, -20);
+  lv_obj_align(gaugeValue, LV_ALIGN_CENTER, 0, -30);
 
   // Unit label
   gaugeUnit = lv_label_create(scr);
   lv_label_set_text(gaugeUnit, pid.unit);
   lv_obj_set_style_text_font(gaugeUnit, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(gaugeUnit, lv_color_make(255, 0, 0), 0);
-  lv_obj_align(gaugeUnit, LV_ALIGN_CENTER, 0, 40);
+  lv_obj_align(gaugeUnit, LV_ALIGN_CENTER, 0, 30);
 
   // PID name
   gaugeName = lv_label_create(scr);
   lv_label_set_text(gaugeName, pid.name);
   lv_obj_set_style_text_font(gaugeName, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(gaugeName, lv_color_white(), 0);
-  lv_obj_align(gaugeName, LV_ALIGN_CENTER, 0, 90);
+  lv_obj_align(gaugeName, LV_ALIGN_CENTER, 0, 80);
 
   lastGaugePage = pidIndex;
 }

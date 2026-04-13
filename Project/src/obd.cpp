@@ -2,17 +2,9 @@
 #include "ble.h"
 #include "pids.h"
 #include "input.h"
+#include <Preferences.h>
 
-PIDDef PIDS[MAX_PIDS];
-int    PID_COUNT = 0;
-
-void buildPIDList() {
-  PID_COUNT = 0;
-  for (int i = 0; i < STANDARD_PID_COUNT; i++)
-    PIDS[PID_COUNT++] = STANDARD_PIDS[i];
-  for (int i = 0; i < CUSTOM_PID_COUNT; i++)
-    PIDS[PID_COUNT++] = CUSTOM_PIDS[i];
-}
+int gaugePage = 0;
 
 static BLEUUID serviceUUID   ("FFF0");
 static BLEUUID charWriteUUID ("FFF2");
@@ -21,50 +13,143 @@ static BLEUUID charNotifyUUID("FFF1");
 static NimBLERemoteCharacteristic* pWriteChar  = nullptr;
 static NimBLERemoteCharacteristic* pNotifyChar = nullptr;
 
+// ── Combined PID list ─────────────────────────────────────────
+PIDDef PIDS[MAX_PIDS];
+int    PID_COUNT = 0;
+
+void buildPIDList() {
+  PID_COUNT = 0;
+  for (int i = 0; i < STANDARD_PID_COUNT && PID_COUNT < MAX_PIDS; i++)
+    PIDS[PID_COUNT++] = STANDARD_PIDS[i];
+  for (int i = 0; i < CUSTOM_PID_COUNT && PID_COUNT < MAX_PIDS; i++)
+    PIDS[PID_COUNT++] = CUSTOM_PIDS[i];
+}
+
+// ── OBD values ────────────────────────────────────────────────
 static OBDValues obdValues;
-static volatile bool responseReady = false;
-static String        responseBuffer = "";
-
-int gaugePage = 0;
-
 OBDValues& getOBDValues() { return obdValues; }
 
-void resetGaugePage() { gaugePage = 0; }
+void resetGaugePage() { }
 
 void resetOBD() {
-  pWriteChar     = nullptr;
-  pNotifyChar    = nullptr;
-  responseReady  = false;
-  responseBuffer = "";
+  pWriteChar    = nullptr;
+  pNotifyChar   = nullptr;
   for (int i = 0; i < PID_COUNT; i++) {
     obdValues.values[i]  = 0.0;
     obdValues.hasData[i] = false;
   }
 }
 
+// ── Prompt-based poll state ───────────────────────────────────
+static volatile bool prompt        = false;
+static String        responseBuffer = "";
+static int           pidPollIndex  = 0;
+static bool          pidSent       = false;
+static uint8_t       skipCounters[MAX_PIDS] = {0};
+
+// ── Notify callback ───────────────────────────────────────────
 static void notifyCallback(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
   for (size_t i = 0; i < len; i++) {
     char c = (char)data[i];
-    responseBuffer += c;
-    if (c == '>') responseReady = true;
+    if (c == '>') {
+      prompt = true;
+    } else {
+      responseBuffer += c;
+    }
   }
 }
 
+// ── Send command ──────────────────────────────────────────────
 static void sendCommand(const char* cmd) {
   if (!pWriteChar) return;
   responseBuffer = "";
-  responseReady  = false;
+  prompt         = false;
   String s = String(cmd) + "\r";
   pWriteChar->writeValue((uint8_t*)s.c_str(), s.length(), false);
 }
 
-static bool sendAndWait(const char* cmd, unsigned long timeoutMs = 1000) {
+static bool sendAndWait(const char* cmd, unsigned long timeoutMs = 1500) {
   sendCommand(cmd);
   unsigned long t = millis();
-  while (!responseReady && millis() - t < timeoutMs) delay(5);
-  return responseReady;
+  while (!prompt && millis() - t < timeoutMs) delay(5);
+  return prompt;
 }
 
+// ── Advance poll index ────────────────────────────────────────
+static void advancePollIndex() {
+  if (PID_COUNT == 0) return;
+  for (int n = 0; n < PID_COUNT; n++) {
+    pidPollIndex = (pidPollIndex + 1) % PID_COUNT;
+    if (skipCounters[pidPollIndex] > 0) {
+      skipCounters[pidPollIndex]--;
+      continue;
+    }
+    skipCounters[pidPollIndex] = PIDS[pidPollIndex].skip;
+    return;
+  }
+}
+
+static void sendCurrentPID() {
+  sendCommand(PIDS[pidPollIndex].cmd);
+}
+
+// ── Parse PID response ────────────────────────────────────────
+static void parsePIDResponse(int pidIndex, const String& response) {
+  const PIDDef& p = PIDS[pidIndex];
+  String r = response;
+  r.trim(); r.replace(">", ""); r.replace(" ", ""); r.toUpperCase();
+
+  if (r.indexOf("NODATA") >= 0 || r.indexOf("ERROR") >= 0) return;
+
+  String cmdUpper = String(p.cmd); cmdUpper.toUpperCase();
+  int dataStart = -1;
+
+  if (cmdUpper.startsWith("01")) {
+    String header = "41" + cmdUpper.substring(2);
+    int idx = r.indexOf(header);
+    if (idx < 0) return;
+    dataStart = idx + header.length();
+  } else if (cmdUpper.startsWith("22")) {
+    String header = "62" + cmdUpper.substring(2);
+    int idx = r.indexOf(header);
+    if (idx < 0) return;
+    dataStart = idx + header.length();
+  } else {
+    int idx = r.indexOf(cmdUpper);
+    if (idx < 0) return;
+    dataStart = idx + cmdUpper.length();
+  }
+
+  if (dataStart < 0 || dataStart >= (int)r.length()) return;
+  String data = r.substring(dataStart);
+  if (data.length() < 2) return;
+
+  byte A = strtol(data.substring(0, 2).c_str(), nullptr, 16);
+  byte B = (data.length() >= 4) ? strtol(data.substring(2, 4).c_str(), nullptr, 16) : 0;
+  byte C = (data.length() >= 6) ? strtol(data.substring(4, 6).c_str(), nullptr, 16) : 0;
+
+  float val = 0.0;
+  String f = String(p.formula);
+  float fa = (float)A, fb = (float)B, fc = (float)C;
+
+  if      (f == "A")                 val = fa;
+  else if (f == "B")                 val = fb;
+  else if (f == "A-40")              val = fa - 40.0f;
+  else if (f == "(A*256+B)/4")       val = ((fa*256.0f)+fb)/4.0f;
+  else if (f == "(A*256+B)/10-40")   val = ((fa*256.0f)+fb)/10.0f-40.0f;
+  else if (f == "(A*256+B)/20")      val = ((fa*256.0f)+fb)/20.0f;
+  else if (f == "(A*256+B)/1000")    val = ((fa*256.0f)+fb)/1000.0f;
+  else if (f == "(A/2)-64")          val = fa/2.0f-64.0f;
+  else if (f == "(A*100)/255")       val = (fa*100.0f)/255.0f;
+  else if (f == "(100/255)*C")       val = (100.0f/255.0f)*fc;
+  else if (f == "B-2")               val = ((B-2)!=0)?1.0f:0.0f;
+  else                               val = fa;
+
+  obdValues.values[pidIndex]  = val;
+  obdValues.hasData[pidIndex] = true;
+}
+
+// ── ELM327 init ───────────────────────────────────────────────
 static bool initELM(NimBLEClient* c) {
   NimBLERemoteService* svc = c->getService(serviceUUID);
   if (!svc) svc = c->getService("FFE0");
@@ -78,14 +163,19 @@ static bool initELM(NimBLEClient* c) {
 
   if (pNotifyChar->canNotify()) pNotifyChar->subscribe(true, notifyCallback);
 
-  sendCommand("ATZ");   delay(1500);
-  sendCommand("ATE0");  delay(300);
-  sendCommand("ATL0");  delay(300);
-  sendCommand("ATS0");  delay(300);
-  sendCommand("ATSP0"); delay(300);
+  sendAndWait("ATZ",   2000);
+  sendAndWait("ATE0",  500);
+  sendAndWait("ATS0",  300);
+  sendAndWait("ATL0",  300);
+  sendAndWait("ATH0",  300);
+  sendAndWait("ATAL",  300);
+  sendAndWait("ATSP0", 500);
 
   return true;
 }
+
+// ── handleOBD ─────────────────────────────────────────────────
+extern int gaugePage;
 
 void handleOBD(AppState &state) {
   if (state != STATE_INIT_ELM && state != STATE_GAUGE) return;
@@ -99,10 +189,34 @@ void handleOBD(AppState &state) {
   }
 
   if (state == STATE_INIT_ELM) {
-      buildPIDList();
-      initELM(c);
-      state = STATE_GAUGE;
-      return;
+    buildPIDList();
+    pidPollIndex = 0;
+    pidSent      = false;
+    prompt       = false;
+    responseBuffer = "";
+    memset(skipCounters, 0, sizeof(skipCounters));
+    initELM(c);
+    responseBuffer = "";
+    prompt         = false;
+    pidSent        = false;
+    state = STATE_GAUGE;
+    return;
   }
-  
+
+  // ── Prompt-based polling ───────────────────────────────────
+  if (prompt) {
+    prompt  = false;
+    pidSent = false;
+    parsePIDResponse(pidPollIndex, responseBuffer);
+    responseBuffer = "";
+    advancePollIndex();
+    sendCurrentPID();
+    pidSent = true;
+    return;
+  }
+
+  if (!pidSent) {
+    sendCurrentPID();
+    pidSent = true;
+  }
 }
