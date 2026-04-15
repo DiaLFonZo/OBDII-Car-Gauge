@@ -7,6 +7,11 @@
 #include <lvgl.h>
 #include <Preferences.h>
 
+LV_FONT_DECLARE(font_dseg7_48);
+LV_FONT_DECLARE(font_dseg7_55);
+LV_FONT_DECLARE(font_dseg7_65);
+LV_FONT_DECLARE(font_dseg7_75);
+
 // ── Shared state ──────────────────────────────────────────────
 volatile AppState appState = STATE_BOOT;
 extern int gaugePage;
@@ -378,8 +383,8 @@ static void buildGaugeScreen() {
   lv_meter_set_indicator_end_value(rpmMeter, arcN, 5250);
 
   // Red arc: redline → max
-  lv_meter_indicator_t *arcW = lv_meter_add_arc(rpmMeter, scale, 8,
-                                                  lv_color_make(220, 30, 30), 0);
+  lv_meter_indicator_t *arcW = lv_meter_add_arc(rpmMeter, scale, 12,
+                                                  lv_color_make(220, 30, 30), -8);
   lv_meter_set_indicator_start_value(rpmMeter, arcW, 5250);
   lv_meter_set_indicator_end_value(rpmMeter, arcW, 6500);
 
@@ -387,11 +392,15 @@ static void buildGaugeScreen() {
   rpmNeedle = lv_meter_add_needle_line(rpmMeter, scale, 3, lv_color_white(), -20);
   lv_meter_set_indicator_value(rpmMeter, rpmNeedle, 0);
 
-  // Digital readout
+  // Digital readout — fixed width + center align so digits never shift
+  // Change GAUGE_DIGITS to set how many digits are shown (e.g. 4 → "0123")
+  #define GAUGE_DIGITS 4
   rpmLabel = lv_label_create(scr);
-  lv_label_set_text(rpmLabel, "0");
-  lv_obj_set_style_text_font(rpmLabel, &lv_font_montserrat_48, 0);
+  lv_label_set_text(rpmLabel, "0000");
+  lv_obj_set_style_text_font(rpmLabel, &font_dseg7_65, 0);
   lv_obj_set_style_text_color(rpmLabel, lv_color_make(190, 249, 253), 0);
+  lv_obj_set_style_text_align(rpmLabel, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_width(rpmLabel, 220);          // wide enough for any 4-digit number
   // RPM Value
   lv_obj_align(rpmLabel, LV_ALIGN_CENTER, 0, 95);
   lv_obj_add_flag(rpmLabel, LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -425,7 +434,7 @@ static void updateGaugeValues() {
   LVGL_LOCK();
   lv_meter_set_indicator_value(rpmMeter, rpmNeedle, rpm);
   char buf[8];
-  snprintf(buf, sizeof(buf), "%d", rpm);
+  snprintf(buf, sizeof(buf), "%0*d", GAUGE_DIGITS, rpm);
   lv_label_set_text(rpmLabel, buf);
   LVGL_UNLOCK();
 }
