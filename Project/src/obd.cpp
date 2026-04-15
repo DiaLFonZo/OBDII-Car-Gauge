@@ -181,7 +181,11 @@ void handleOBD(AppState &state) {
     prompt    = false;
     respBuf   = "";
     memset(skipCounters, 0, sizeof(skipCounters));
-    initELM(c);
+    if (!initELM(c)) {
+      resetOBD();
+      state = STATE_SCANNING;
+      return;
+    }
     prompt  = false;
     respBuf = "";
     pidSent = false;

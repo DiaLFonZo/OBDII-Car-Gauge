@@ -107,13 +107,22 @@ static bool connectByAddress(const String& address, AppState &state) {
     NimBLEDevice::deleteClient(client);
     client = nullptr;
   }
+
+  // Stop scan and wait until the BLE stack confirms it is idle
   scan->stop();
-  delay(100);
+  uint32_t t0 = millis();
+  while (scan->isScanning() && millis() - t0 < 1000) delay(10);
+  delay(50);
+
+  client = NimBLEDevice::createClient();
+  if (!client) {
+    resumeScan();
+    state = STATE_SCANNING;
+    return false;
+  }
+  client->setConnectTimeout(10);   // 10 s — always returns, never hangs forever
 
   NimBLEAddress bleAddr(std::string(address.c_str()), BLE_ADDR_PUBLIC);
-  client = NimBLEDevice::createClient();
-
-  client->setConnectTimeout(10);
   if (!client->connect(bleAddr)) {
     NimBLEDevice::deleteClient(client);
     client = nullptr;
@@ -146,9 +155,11 @@ bool tryAutoConnect(AppState &state) {
 }
 
 void connectToSelectedDevice(AppState &state) {
-  if (deviceCount == 0) return;
+  if (deviceCount == 0 || selectedIndex >= deviceCount) {
+    state = STATE_SCANNING;
+    return;
+  }
   BLEDeviceEntry* dev = &deviceList[selectedIndex];
-  if (!dev) return;
 
   bool ok = connectByAddress(dev->address, state);
   if (ok) {
