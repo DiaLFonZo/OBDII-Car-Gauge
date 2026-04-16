@@ -14,8 +14,9 @@ enum AppState {
 };
 
 struct BLEDeviceEntry {
-  String name;
-  String address;
+  String  name;
+  String  address;
+  uint8_t addrType = BLE_ADDR_PUBLIC;
 };
 
 void            initBLE();

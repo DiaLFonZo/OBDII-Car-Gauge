@@ -3,6 +3,7 @@
 #include "input.h"
 #include <Preferences.h>
 
+
 static BLEDeviceEntry deviceList[MAX_DEVICES];
 static int selectedIndex = 0;
 static int deviceCount   = 0;
@@ -53,18 +54,23 @@ void forgetSavedDevice() {
 class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice* device) override {
     String addr = device->getAddress().toString().c_str();
+    uint8_t type = device->getAddress().getType();
+    String name  = device->getName().c_str();
+
     for (int i = 0; i < deviceCount; i++) {
       if (deviceList[i].address == addr) {
-        String n = device->getName().c_str();
-        if (n != "") deviceList[i].name = n;
-        return;
+        if (name != "") deviceList[i].name = name;
+        return;  // already known — no print
       }
     }
     if (deviceCount >= MAX_DEVICES) return;
-    String name = device->getName().c_str();
     if (name == "") name = addr.substring(0, 8);
-    deviceList[deviceCount].name    = name;
-    deviceList[deviceCount].address = addr;
+    // only print truly new devices
+    Serial.printf("[SCAN] NEW: '%s'  %s  type=%d  rssi=%d\n",
+                  name.c_str(), addr.c_str(), type, device->getRSSI());
+    deviceList[deviceCount].name     = name;
+    deviceList[deviceCount].address  = addr;
+    deviceList[deviceCount].addrType = type;
     deviceCount++;
   }
 };
@@ -74,19 +80,24 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
 // ─────────────────────────────
 
 void initBLE() {
+  Serial.println("[BLE] initBLE()");
   NimBLEDevice::init("OBD2");
   scan = NimBLEDevice::getScan();
   scan->setActiveScan(true);
   scan->setInterval(100);
   scan->setWindow(99);
   scan->setAdvertisedDeviceCallbacks(new ScanCallbacks());
+  Serial.println("[BLE] initBLE() done");
 }
 
+static void scanComplete(NimBLEScanResults) {}  // non-blocking requires a callback
+
 void startScan() {
+  Serial.println("[BLE] startScan()");
   deviceCount   = 0;
   selectedIndex = 0;
   scan->clearResults();
-  scan->start(0, false);  // 0 = indefinite, truly non-blocking
+  scan->start(0, scanComplete, false);  // 3-arg version returns immediately
 }
 
 void stopScan() {
@@ -94,36 +105,40 @@ void stopScan() {
 }
 
 void resumeScan() {
-  scan->start(0, true);
+  scan->start(0, scanComplete, true);  // non-blocking resume
 }
 
 // ─────────────────────────────
 // Connect by address string
 // ─────────────────────────────
 
-static bool connectByAddress(const String& address, AppState &state) {
+static bool connectByAddress(const String& address, uint8_t addrType, AppState &state) {
+  Serial.printf("[BLE] connectByAddress: %s  addrType=%d\n", address.c_str(), addrType);
+
   if (client) {
+    Serial.println("[BLE] Deleting old client");
     client->disconnect();
     NimBLEDevice::deleteClient(client);
     client = nullptr;
   }
 
-  // Stop scan and wait until the BLE stack confirms it is idle
-  scan->stop();
-  uint32_t t0 = millis();
-  while (scan->isScanning() && millis() - t0 < 1000) delay(10);
-  delay(50);
-
+  Serial.println("[BLE] Creating client...");
   client = NimBLEDevice::createClient();
   if (!client) {
+    Serial.println("[BLE] ERR: createClient() returned null");
     resumeScan();
     state = STATE_SCANNING;
     return false;
   }
-  client->setConnectTimeout(10);   // 10 s — always returns, never hangs forever
+  client->setConnectTimeout(10);
+  Serial.println("[BLE] Client created. Calling connect()...");
 
-  NimBLEAddress bleAddr(std::string(address.c_str()), BLE_ADDR_PUBLIC);
-  if (!client->connect(bleAddr)) {
+  NimBLEAddress bleAddr(std::string(address.c_str()), addrType);
+  bool connected = client->connect(bleAddr);
+  Serial.printf("[BLE] connect() returned: %s\n", connected ? "TRUE" : "FALSE");
+
+  if (!connected) {
+    Serial.printf("[BLE] connect() failed. isConnected=%d\n", client->isConnected());
     NimBLEDevice::deleteClient(client);
     client = nullptr;
     resumeScan();
@@ -131,6 +146,8 @@ static bool connectByAddress(const String& address, AppState &state) {
     return false;
   }
 
+  Serial.println("[BLE] Connected! Waiting for stack to settle...");
+  delay(500);  // give GATT stack time before service discovery
   resetOBD();
   resetGaugePage();
   state = STATE_INIT_ELM;
@@ -147,7 +164,7 @@ bool tryAutoConnect(AppState &state) {
   for (int i = 0; i < deviceCount; i++) {
     if (deviceList[i].address == savedMac) {
       selectedIndex = i;
-      connectByAddress(savedMac, state);
+      connectByAddress(savedMac, deviceList[i].addrType, state);
       return true;
     }
   }
@@ -155,13 +172,17 @@ bool tryAutoConnect(AppState &state) {
 }
 
 void connectToSelectedDevice(AppState &state) {
+  Serial.printf("[BLE] connectToSelectedDevice: count=%d idx=%d\n", deviceCount, selectedIndex);
   if (deviceCount == 0 || selectedIndex >= deviceCount) {
+    Serial.println("[BLE] ERR: no device to connect to");
     state = STATE_SCANNING;
     return;
   }
   BLEDeviceEntry* dev = &deviceList[selectedIndex];
+  Serial.printf("[BLE] Target: name='%s' addr='%s' type=%d\n",
+                dev->name.c_str(), dev->address.c_str(), dev->addrType);
 
-  bool ok = connectByAddress(dev->address, state);
+  bool ok = connectByAddress(dev->address, dev->addrType, state);
   if (ok) {
     Preferences prefs;
     prefs.begin("obd", false);

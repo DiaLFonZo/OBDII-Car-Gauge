@@ -6,14 +6,15 @@
 #include "obd.h"
 #include <lvgl.h>
 #include <Preferences.h>
+#include <atomic>
 
 LV_FONT_DECLARE(font_dseg7_48);
 LV_FONT_DECLARE(font_dseg7_55);
 LV_FONT_DECLARE(font_dseg7_65);
 LV_FONT_DECLARE(font_dseg7_75);
 
-// ── Shared state ──────────────────────────────────────────────
-volatile AppState appState = STATE_BOOT;
+// ── Shared state (atomic = hardware memory barrier on Xtensa dual-core) ──
+std::atomic<int> appState{STATE_BOOT};
 extern int gaugePage;
 
 
@@ -65,7 +66,7 @@ static lv_obj_t *rpmMeter                = nullptr;
 static lv_meter_indicator_t *rpmNeedle   = nullptr;
 
 // ── On-screen BLE status (written by task, read by UI) ────────
-static char      bleStatusLine[64] = "";
+char             bleStatusLine[64] = "";
 static lv_obj_t *statusSubLbl      = nullptr;
 
 // ── Reset all screen-object pointers (call before lv_obj_clean) ──
@@ -83,11 +84,8 @@ static void resetScreenPtrs() {
 static void device_btn_cb(lv_event_t *e) {
   int idx = (int)(intptr_t)lv_event_get_user_data(e);
   setSelectedIndex(idx);
-  // Pre-populate subtitle so it's visible the instant the Connecting screen appears
-  BLEDeviceEntry* dev = getDevice(idx);
-  snprintf(bleStatusLine, sizeof(bleStatusLine), "%s",
-           (dev && dev->name.length()) ? dev->name.c_str() : "Unknown device");
-  appState = STATE_CONNECTING;
+  appState.store((int)STATE_CONNECTING);
+  Serial.printf("[UI] device_btn_cb fired, idx=%d, appState set to %d\n", idx, (int)STATE_CONNECTING);
 }
 
 // ── showStatus ─── title + live subtitle updated by task ──────
@@ -121,7 +119,7 @@ static void showStatus(const char* title) {
   lv_obj_center(blbl);
   lv_obj_add_event_cb(btn, [](lv_event_t*) {
     strncpy(bleStatusLine, "Cancelled", sizeof(bleStatusLine));
-    appState = STATE_SCANNING;
+    appState.store((int)STATE_SCANNING);
   }, LV_EVENT_CLICKED, nullptr);
 
   LVGL_UNLOCK();
@@ -247,7 +245,7 @@ static void buildRawScreen() {
   lv_obj_add_event_cb(disc, [](lv_event_t*) {
     NimBLEClient *c = getBLEClient();
     if (c) c->disconnect();
-    appState = STATE_SCANNING;
+    appState.store((int)STATE_SCANNING);
   }, LV_EVENT_CLICKED, nullptr);
 
   LVGL_UNLOCK();
@@ -444,7 +442,7 @@ static void ble_obd_task(void*) {
   buildPIDList();
   OBDValues &dv = getOBDValues();
   for (int i = 0; i < PID_COUNT; i++) dv.hasData[i] = true;
-  appState = STATE_GAUGE;
+  appState.store((int)STATE_GAUGE);
   for (uint32_t tick = 0;;tick++) {
     float t = tick * 0.005f;
     dv.values[0]  = 800.0f + 4700.0f * (0.5f + 0.5f * sinf(t));
@@ -467,56 +465,37 @@ static void ble_obd_task(void*) {
   static AppState taskLastState = STATE_BOOT;
 
   while (1) {
-    AppState state = appState;
+    AppState state = (AppState)appState.load();
+    Serial.printf("[TASK] state=%d last=%d\n", (int)state, (int)taskLastState);
 
     // ── Scanning ──────────────────────────────────────────────
     if (state == STATE_SCANNING) {
-      if (taskLastState != STATE_SCANNING) {
+      if (taskLastState != STATE_SCANNING)
         taskLastState = STATE_SCANNING;
-        // resumeScan already called on failure; startScan() was called at init
-      }
     }
 
     // ── Connecting — attempt once per entry into this state ───
     else if (state == STATE_CONNECTING) {
       if (taskLastState != STATE_CONNECTING) {
         taskLastState = STATE_CONNECTING;
-
-        BLEDeviceEntry* dev = getDevice(getSelectedIndex());
-        if (dev)
-          snprintf(bleStatusLine, sizeof(bleStatusLine), "→ %s", dev->name.c_str());
-
-        vTaskDelay(pdMS_TO_TICKS(100)); // let UI render the device name first
-
-        strncpy(bleStatusLine, "BLE linking...", sizeof(bleStatusLine));
-        AppState s = appState;
+        vTaskDelay(pdMS_TO_TICKS(200));
+        AppState s = (AppState)appState.load();
         connectToSelectedDevice(s);
-
-        if (s == STATE_INIT_ELM)
-          strncpy(bleStatusLine, "BLE OK  |  ELM init...", sizeof(bleStatusLine));
-        else {
-          strncpy(bleStatusLine, "Failed — back to scan", sizeof(bleStatusLine));
-          taskLastState = STATE_BOOT; // allow retry next time
-        }
-        appState = s;
+        if (s != STATE_INIT_ELM)
+          taskLastState = STATE_BOOT;
+        appState.store((int)s);
       }
     }
 
     // ── OBD polling ───────────────────────────────────────────
     else if (state == STATE_INIT_ELM || state == STATE_GAUGE) {
       taskLastState = state;
-      AppState s = appState;
+      AppState s = (AppState)appState.load();
       handleOBD(s);
-      appState = s;
+      appState.store((int)s);
 
-      if (state == STATE_INIT_ELM) {
-        if (s == STATE_GAUGE)
-          strncpy(bleStatusLine, "Connected!", sizeof(bleStatusLine));
-        else if (s == STATE_SCANNING) {
-          strncpy(bleStatusLine, "ELM init failed", sizeof(bleStatusLine));
-          taskLastState = STATE_BOOT;
-        }
-      }
+      if (state == STATE_INIT_ELM && s == STATE_SCANNING)
+        taskLastState = STATE_BOOT;
     }
 
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -566,8 +545,8 @@ void setup() {
   esp_timer_create(&ta, &timer);
   esp_timer_start_periodic(timer, 5000);
 
-  appState = STATE_SCANNING;
-  xTaskCreatePinnedToCore(ble_obd_task, "ble_obd", 16384, NULL, 3, NULL, 1);
+  appState.store((int)STATE_SCANNING);
+  xTaskCreatePinnedToCore(ble_obd_task, "ble_obd", 32768, NULL, 3, NULL, 1);
 }
 
 // ── loop — UI only, core 0 ────────────────────────────────────
@@ -576,24 +555,45 @@ void loop() {
   lv_timer_handler();
   LVGL_UNLOCK();
 
-  AppState state = appState;
+  AppState state = (AppState)appState.load();
 
   // ── UI: react to state changes ────────────────────────────
   static int lastGaugePage = -1;
   if (state != lastUIState) {
     lastUIState   = state;
     lastGaugePage = -1;
-    if (state == STATE_SCANNING)
+    if (state == STATE_SCANNING) {
       showDeviceGrid();
-    else if (state == STATE_CONNECTING)
+    } else if (state == STATE_CONNECTING) {
+      BLEDeviceEntry* dev = getDevice(getSelectedIndex());
+      snprintf(bleStatusLine, sizeof(bleStatusLine), "%s",
+               (dev && dev->name.length()) ? dev->name.c_str() : "...");
       showStatus("Connecting...");
-    else if (state == STATE_INIT_ELM)
-      showStatus("Initializing...");
+    } else if (state == STATE_INIT_ELM) {
+      strncpy(bleStatusLine, "Initializing ELM327...", sizeof(bleStatusLine));
+      showStatus("Connected");
+    }
   }
 
-  // Refresh live subtitle
-  if ((state == STATE_CONNECTING || state == STATE_INIT_ELM) && statusSubLbl)
+  // Refresh live subtitle (inside mutex — it's an LVGL call)
+  if ((state == STATE_CONNECTING || state == STATE_INIT_ELM) && statusSubLbl) {
+    LVGL_LOCK();
     lv_label_set_text(statusSubLbl, bleStatusLine);
+    LVGL_UNLOCK();
+  }
+
+  // Hard watchdog: if the BLE task freezes inside connect(), force back to scan after 15 s
+  static unsigned long connectWatchdog = 0;
+  if (state == STATE_CONNECTING) {
+    if (connectWatchdog == 0) connectWatchdog = millis();
+    if (millis() - connectWatchdog > 15000) {
+      snprintf(bleStatusLine, sizeof(bleStatusLine), "Timeout — forced back to scan");
+      connectWatchdog = 0;
+      appState.store((int)STATE_SCANNING);
+    }
+  } else {
+    connectWatchdog = 0;
+  }
 
   // Build gauge page on change
   if (state == STATE_GAUGE && gaugePage != lastGaugePage) {

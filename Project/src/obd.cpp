@@ -140,25 +140,32 @@ static void parsePIDResponse(int pidIndex, const String& response) {
 
 // ── ELM327 init ───────────────────────────────────────────────
 static bool initELM(NimBLEClient* c) {
+  Serial.println("[OBD] initELM: getting service FFF0...");
   NimBLERemoteService* svc = c->getService(serviceUUID);
-  if (!svc) svc = c->getService("FFE0");
-  if (!svc) return false;
+  if (!svc) { Serial.println("[OBD] FFF0 not found, trying FFE0..."); svc = c->getService("FFE0"); }
+  if (!svc) { Serial.println("[OBD] ERR: no service found"); return false; }
+  Serial.println("[OBD] Service found. Getting characteristics...");
 
   pWriteChar  = svc->getCharacteristic(charWriteUUID);
   pNotifyChar = svc->getCharacteristic(charNotifyUUID);
   if (!pWriteChar)  pWriteChar  = svc->getCharacteristic("FFE2");
   if (!pNotifyChar) pNotifyChar = svc->getCharacteristic("FFE1");
+  Serial.printf("[OBD] write=%s  notify=%s\n",
+                pWriteChar  ? "OK" : "NULL",
+                pNotifyChar ? "OK" : "NULL");
   if (!pWriteChar || !pNotifyChar) return false;
 
   if (pNotifyChar->canNotify()) pNotifyChar->subscribe(true, notifyCallback);
+  Serial.println("[OBD] Subscribed. Sending ELM init sequence...");
 
-  sendAndWait("ATZ",   2000);
-  sendAndWait("ATE0",  500);
-  sendAndWait("ATS0",  300);
-  sendAndWait("ATL0",  300);
-  sendAndWait("ATH0",  300);
-  sendAndWait("ATAL",  300);
-  sendAndWait("ATSP0", 500);
+  Serial.printf("[OBD] ATZ  → prompt=%d  resp='%s'\n", sendAndWait("ATZ",  2000), respBuf.c_str());
+  Serial.printf("[OBD] ATE0 → prompt=%d\n", sendAndWait("ATE0", 500));
+  Serial.printf("[OBD] ATS0 → prompt=%d\n", sendAndWait("ATS0", 300));
+  Serial.printf("[OBD] ATL0 → prompt=%d\n", sendAndWait("ATL0", 300));
+  Serial.printf("[OBD] ATH0 → prompt=%d\n", sendAndWait("ATH0", 300));
+  Serial.printf("[OBD] ATAL → prompt=%d\n", sendAndWait("ATAL", 300));
+  Serial.printf("[OBD] ATSP0→ prompt=%d\n", sendAndWait("ATSP0",500));
+  Serial.println("[OBD] ELM init done");
 
   return true;
 }
