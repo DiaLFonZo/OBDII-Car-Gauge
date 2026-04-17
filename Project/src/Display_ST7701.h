@@ -42,7 +42,7 @@
 #define ESP_PANEL_LCD_RGB_PCLK_ACTIVE_NEG         (0)     // 0: rising edge, 1: falling edge
 #define ESP_PANEL_LCD_RGB_DATA_WIDTH              (16)
 #define ESP_PANEL_LCD_RGB_PIXEL_BITS              (16)    // 24 | 16
-#define ESP_PANEL_LCD_RGB_FRAME_BUF_NUM           (1)     // 1/2/3
+#define ESP_PANEL_LCD_RGB_FRAME_BUF_NUM           (2)     // 1/2/3 — 2 = double-buffer, no tearing
 #define ESP_PANEL_LCD_RGB_BOUNCE_BUF_SIZE         (10 * ESP_PANEL_LCD_HEIGHT)     // Bounce buffer size in bytes. This function is used to avoid screen drift.
                                                           // To enable the bounce buffer, set it to a non-zero value. Typically set to `ESP_PANEL_LCD_WIDTH * 10`
                                                           // The size of the Bounce Buffer must satisfy `width_of_lcd * height_of_lcd = size_of_buffer * N`,
@@ -89,4 +89,10 @@ void LCD_addWindow(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yen
 
 // backlight
 void Backlight_Init();
-void Set_Backlight(uint8_t Light);    
+void Set_Backlight(uint8_t Light);
+
+// vsync sync — call inside lvgl_flush after the last band to wait for buffer swap
+void LCD_WaitVsync(uint32_t timeout_ms);
+
+// Returns the two PSRAM frame buffer pointers for direct LVGL rendering
+void LCD_GetFrameBuffers(void **fb0, void **fb1);

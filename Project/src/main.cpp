@@ -23,13 +23,15 @@ static SemaphoreHandle_t lvgl_mutex = NULL;
 #define LVGL_LOCK()   xSemaphoreTake(lvgl_mutex, portMAX_DELAY)
 #define LVGL_UNLOCK() xSemaphoreGive(lvgl_mutex)
 
-// ── LVGL buffers ──────────────────────────────────────────────
-static lv_color_t *lvgl_buf1 = nullptr;
-static lv_color_t *lvgl_buf2 = nullptr;
+// ── LVGL draw buffer (single, full-screen) ────────────────────
+// One 480×480 buffer means LVGL renders the entire frame in a single pass and
+// flush_cb is called ONCE per frame — no multi-band stale-vsync problem.
+static lv_color_t *lvgl_buf = nullptr;
 
 // ── LVGL flush ────────────────────────────────────────────────
 static void lvgl_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
   LCD_addWindow(area->x1, area->y1, area->x2, area->y2, (uint8_t*)color_p);
+  LCD_WaitVsync(50);   // drain stale token + wait for next vsync before releasing LVGL
   lv_disp_flush_ready(drv);
 }
 
@@ -424,10 +426,14 @@ static void buildGaugeScreen() {
 static void updateGaugeValues() {
   if (!rpmScreen || !rpmMeter || !rpmLabel || !rpmNeedle) return;
   OBDValues &v = getOBDValues();
-  if (!v.hasData[0]) return;           // index 0 = RPM in pids.h
+  if (!v.hasData[0]) return;
 
   int rpm = (int)v.values[0];
   rpm = rpm < 0 ? 0 : (rpm > 6500 ? 6500 : rpm);
+
+  static int lastRpm = -1;
+  if (rpm == lastRpm) return;          // no change — skip the LVGL update
+  lastRpm = rpm;
 
   LVGL_LOCK();
   lv_meter_set_indicator_value(rpmMeter, rpmNeedle, rpm);
@@ -513,11 +519,13 @@ void setup() {
   lvgl_mutex = xSemaphoreCreateMutex();
   lv_init();
 
-  lvgl_buf1 = (lv_color_t*)heap_caps_malloc(480 * 40 * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
-  lvgl_buf2 = (lv_color_t*)heap_caps_malloc(480 * 40 * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+  // Single full-screen draw buffer: LVGL renders dirty regions in one pass,
+  // flush_cb fires once per frame. draw_bitmap copies only the dirty rect
+  // to the panel's back frame buffer; vsync swaps it to display atomically.
+  lvgl_buf = (lv_color_t*)heap_caps_malloc(480 * 480 * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
 
   static lv_disp_draw_buf_t draw_buf;
-  lv_disp_draw_buf_init(&draw_buf, lvgl_buf1, lvgl_buf2, 480 * 40);
+  lv_disp_draw_buf_init(&draw_buf, lvgl_buf, nullptr, 480 * 480);
 
   static lv_disp_drv_t disp_drv;
   lv_disp_drv_init(&disp_drv);

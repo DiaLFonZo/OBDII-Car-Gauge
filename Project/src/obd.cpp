@@ -206,7 +206,15 @@ void handleOBD(AppState &state) {
     pidSent = false;
     parsePIDResponse(pollIndex, respBuf);
     respBuf = "";
-    advancePollIndex();
+
+    // On the gauge page, snap back to RPM after every non-RPM poll
+    // so RPM updates at ~50% of total poll bandwidth instead of 1/N
+    if (gaugePage == 0 && pollIndex != 0) {
+      pollIndex = 0;
+    } else {
+      advancePollIndex();
+    }
+
     sendCommand(PIDS[pollIndex].cmd);
     pidSent = true;
     return;

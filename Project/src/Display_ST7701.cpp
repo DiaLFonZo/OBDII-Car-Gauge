@@ -1,8 +1,9 @@
 #include "Display_ST7701.h"  
 #include "Arduino.h"
       
-spi_device_handle_t SPI_handle = NULL;     
-esp_lcd_panel_handle_t panel_handle = NULL;            
+spi_device_handle_t SPI_handle = NULL;
+esp_lcd_panel_handle_t panel_handle = NULL;
+static SemaphoreHandle_t vsync_sem = NULL;
 void ST7701_WriteCommand(uint8_t cmd)
 {
   spi_transaction_t spi_tran = {
@@ -384,12 +385,31 @@ void ST7701_Init()
   Serial.printf("Panel reset: %s\n", esp_err_to_name(ret));
   ret = esp_lcd_panel_init(panel_handle);
   Serial.printf("Panel init: %s\n", esp_err_to_name(ret));
+
+  // Register vsync callback — used to sync LVGL flush_ready to the buffer swap
+  vsync_sem = xSemaphoreCreateBinary();
+  esp_lcd_rgb_panel_event_callbacks_t cbs = { .on_vsync = example_on_vsync_event };
+  esp_lcd_rgb_panel_register_event_callbacks(panel_handle, &cbs, NULL);
+  Serial.println("Vsync callback registered");
+}
+
+void LCD_GetFrameBuffers(void **fb0, void **fb1) {
+  esp_lcd_rgb_panel_get_frame_buffer(panel_handle, 2, fb0, fb1);
 }
 
 bool example_on_vsync_event(esp_lcd_panel_handle_t panel, const esp_lcd_rgb_panel_event_data_t *event_data, void *user_data)
 {
   BaseType_t high_task_awoken = pdFALSE;
+  if (vsync_sem) xSemaphoreGiveFromISR(vsync_sem, &high_task_awoken);
   return high_task_awoken == pdTRUE;
+}
+
+// Block until the NEXT vsync. Drains any token that fired during a previous
+// render so we always synchronize to a post-render vsync, not a stale one.
+void LCD_WaitVsync(uint32_t timeout_ms) {
+  if (!vsync_sem) return;
+  xSemaphoreTake(vsync_sem, 0);                          // discard stale mid-render token
+  xSemaphoreTake(vsync_sem, pdMS_TO_TICKS(timeout_ms)); // wait for next real vsync
 }
 void LCD_Init() {
   I2C_Init();
