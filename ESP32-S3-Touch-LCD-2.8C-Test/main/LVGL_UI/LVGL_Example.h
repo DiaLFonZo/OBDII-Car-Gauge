@@ -8,7 +8,6 @@
 #include "PCF85063.h"
 #include "QMI8658.h"
 #include "SD_MMC.h"
-#include "Wireless.h"
 #include "Buzzer.h"
 #include "BAT_Driver.h"
 #include "ST7701S.h"

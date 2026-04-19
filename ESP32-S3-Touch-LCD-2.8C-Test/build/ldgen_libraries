@@ -165,4 +165,6 @@ C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/esp-idf/wifi_p
 C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/esp-idf/json/libjson.a
 C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/esp-idf/lvgl__lvgl/liblvgl__lvgl.a
 C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/esp-idf/main/libmain.a
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/esp-idf/fatfs/libfatfs.a
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/esp-idf/esp_lcd/libesp_lcd.a
 C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/esp-idf/lvgl__lvgl/liblvgl__lvgl.a

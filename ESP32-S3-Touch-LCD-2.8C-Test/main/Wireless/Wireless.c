@@ -1,4 +1,3 @@
-#include "Wireless.h"
 
 uint16_t BLE_NUM = 0;
 uint16_t WIFI_NUM = 0;
