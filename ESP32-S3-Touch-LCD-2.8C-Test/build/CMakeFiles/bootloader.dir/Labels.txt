@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/CMakeFiles/bootloader
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/CMakeFiles/bootloader.rule
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/CMakeFiles/bootloader-complete.rule
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+C:/02 - Github/OBDII-Car-Gauge/ESP32-S3-Touch-LCD-2.8C-Test/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule

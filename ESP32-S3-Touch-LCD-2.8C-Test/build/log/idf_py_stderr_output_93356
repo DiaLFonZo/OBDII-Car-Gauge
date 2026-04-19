@@ -1,0 +1,37 @@
+Command: cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=C:\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe -DESP_PLATFORM=1 -DIDF_TARGET=esp32s3 -DCCACHE_ENABLE=0 C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test
+info: INFO: Symbol LV_USE_DEMO_WIDGETS defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\components\lvgl__lvgl\Kconfig:986
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:23
+info: INFO: Symbol LV_DEMO_WIDGETS_SLIDESHOW defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:27
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\components\lvgl__lvgl\Kconfig:989
+info: INFO: Symbol LV_USE_DEMO_KEYPAD_AND_ENCODER defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\components\lvgl__lvgl\Kconfig:994
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:32
+info: INFO: Symbol LV_USE_DEMO_BENCHMARK defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\components\lvgl__lvgl\Kconfig:998
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:36
+info: INFO: Symbol LV_USE_DEMO_STRESS defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\components\lvgl__lvgl\Kconfig:1002
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:40
+info: INFO: Symbol LV_USE_DEMO_MUSIC defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\components\lvgl__lvgl\Kconfig:1006
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:44
+info: INFO: Symbol LV_FONT_MONTSERRAT_12 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\components\lvgl__lvgl\Kconfig:462
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:49
+info: INFO: Symbol LV_FONT_MONTSERRAT_14 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:53
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\components\lvgl__lvgl\Kconfig:464
+info: INFO: Symbol LV_FONT_MONTSERRAT_16 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:57
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\components\lvgl__lvgl\Kconfig:467
+info: INFO: Symbol BT_ENABLED defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\esp\esp-idf\components\bt\Kconfig:3
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:63
+info: INFO: Symbol BT_BLE_50_FEATURES_SUPPORTED defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:67
+    C:\esp\esp-idf\components\bt\host\bluedroid\Kconfig.in:1356
+info: INFO: Symbol BT_BLE_42_FEATURES_SUPPORTED defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    C:\esp\esp-idf\components\bt\host\bluedroid\Kconfig.in:1564
+    C:\02 - Github\OBDII-Car-Gauge\ESP32-S3-Touch-LCD-2.8C-Test\main\Kconfig.projbuild:71
