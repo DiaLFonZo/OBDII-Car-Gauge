@@ -597,10 +597,7 @@ static void obd_state_task(void *arg) {
                 s_resp_len    = 0;
 
                 // Prioritise RPM (idx 0) on gauge page
-                if (s_poll_idx != 0)
-                    s_poll_idx = 0;
-                else
-                    advance_poll_index();
+                advance_poll_index();
 
                 elm_send_cmd(PIDS[s_poll_idx].cmd);
                 vTaskDelay(pdMS_TO_TICKS(20));

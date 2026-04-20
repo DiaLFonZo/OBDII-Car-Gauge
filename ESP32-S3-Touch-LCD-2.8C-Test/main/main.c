@@ -15,12 +15,13 @@
 #include "BAT_Driver.h"
 #include "ble.h"
 #include "scan_screen.h"
+#include "gauge_screen.h"
 
 // ── Core 0: sensors + BLE ────────────────────────────────────────
 void Driver_Loop(void *parameter) {
     while (1) {
-        QMI8658_Loop();
-        RTC_Loop();
+        // QMI8658_Loop();
+        // RTC_Loop();
         BAT_Get_Volts();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -67,6 +68,7 @@ void app_main(void) {
     LCD_Init();
     Touch_Init();
     SD_Init();
+    gauge_screen_init();
     LVGL_Init();
 
     // Show scan screen first

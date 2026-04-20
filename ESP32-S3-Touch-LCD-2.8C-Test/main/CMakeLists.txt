@@ -16,6 +16,11 @@ idf_component_register(
           "BLE/pids.c"
           "UI/scan_screen.c"
           "UI/debug_screen.c"
+          "UI/gauge_screen.c"
+          "Fonts/font_dseg7_48.c"
+          "Fonts/font_dseg7_55.c"
+          "Fonts/font_dseg7_65.c"
+          "Fonts/font_dseg7_75.c"
 
     INCLUDE_DIRS
           "./EXIO"
@@ -32,6 +37,7 @@ idf_component_register(
           "./BAT_Driver"
           "./BLE"
           "./UI"
+          "./Fonts"
           "."
 
       REQUIRES
