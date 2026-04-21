@@ -14,6 +14,7 @@ idf_component_register(
           "BAT_Driver/BAT_Driver.c"
           "BLE/ble.c"
           "BLE/pids.c"
+          "UI/boot_screen.c"
           "UI/scan_screen.c"
           "UI/debug_screen.c"
           "UI/gauge_screen.c"

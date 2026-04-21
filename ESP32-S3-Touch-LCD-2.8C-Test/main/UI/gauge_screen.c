@@ -526,6 +526,6 @@ void gauge_screen_show(void) {
     lv_obj_add_event_cb(s_scr, on_long_press, LV_EVENT_LONG_PRESSED, NULL);
 
     lv_scr_load(s_scr);
-    lv_timer_create(gauge_tick, 100, NULL);
+    lv_timer_create(gauge_tick, 50, NULL);
     ESP_LOGI(TAG, "Gauge screen running");
 }

@@ -600,7 +600,7 @@ static void obd_state_task(void *arg) {
                 advance_poll_index();
 
                 elm_send_cmd(PIDS[s_poll_idx].cmd);
-                vTaskDelay(pdMS_TO_TICKS(20));
+                //vTaskDelay(pdMS_TO_TICKS(20));
                 s_pid_sent = true;
             } else if (!s_pid_sent) {
                 elm_send_cmd(PIDS[s_poll_idx].cmd);

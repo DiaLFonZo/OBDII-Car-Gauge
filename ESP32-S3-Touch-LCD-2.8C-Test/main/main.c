@@ -14,6 +14,7 @@
 //#include "LVGL_Example.h"
 #include "BAT_Driver.h"
 #include "ble.h"
+#include "boot_screen.h"
 #include "scan_screen.h"
 #include "gauge_screen.h"
 
@@ -31,11 +32,10 @@ void Driver_Loop(void *parameter) {
 void Driver_Init(void) {
     Flash_Searching();
     BAT_Init();
-    I2C_Init();
-    PCF85063_Init();
-    QMI8658_Init();
+    //PCF85063_Init();
+    //QMI8658_Init();
     EXIO_Init();
-    xTaskCreatePinnedToCore(Driver_Loop, "drivers", 4096, NULL, 3, NULL, 0);
+    xTaskCreatePinnedToCore(Driver_Loop, "drivers", 4096, NULL, 3, NULL, 1);
 }
 
 // ── Core 1: LVGL display ─────────────────────────────────────────
@@ -61,18 +61,18 @@ void app_main(void) {
         nvs_flash_erase();
         nvs_flash_init();
     }
+    I2C_Init();
 
     lvgl_mutex = xSemaphoreCreateMutex();
-
     Driver_Init();
     LCD_Init();
     Touch_Init();
     SD_Init();
-    gauge_screen_init();
+    //gauge_screen_init();
     LVGL_Init();
 
-    // Show scan screen first
-    scan_screen_create();
+    // Show boot screen
+    boot_screen_create();
 
     // Start BLE on Core 0 (scans, connects, polls)
     ble_obd_start();
